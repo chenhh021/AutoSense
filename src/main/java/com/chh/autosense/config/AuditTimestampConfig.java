@@ -1,13 +1,13 @@
 package com.chh.autosense.config;
 
-import com.chh.autosense.domain.model.ChatMessage;
-import com.chh.autosense.domain.model.Device;
-import com.chh.autosense.domain.model.DiagnosticSnapshot;
-import com.chh.autosense.domain.model.ProblemReport;
-import com.chh.autosense.domain.model.RepairActionLog;
-import com.chh.autosense.domain.model.RepairKnowledge;
-import com.chh.autosense.domain.model.RepairSession;
-import com.chh.autosense.domain.model.User;
+import com.chh.autosense.domain.entity.ChatMessage;
+import com.chh.autosense.domain.entity.Device;
+import com.chh.autosense.domain.entity.DiagnosticSnapshot;
+import com.chh.autosense.domain.entity.ProblemReport;
+import com.chh.autosense.domain.entity.RepairActionLog;
+import com.chh.autosense.domain.entity.RepairKnowledge;
+import com.chh.autosense.domain.entity.RepairSession;
+import com.chh.autosense.domain.entity.User;
 import com.mybatisflex.core.FlexGlobalConfig;
 import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.Configuration;

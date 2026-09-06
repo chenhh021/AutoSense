@@ -1,14 +1,14 @@
 package com.chh.autosense.controller;
 
-import com.chh.autosense.api.ErrorResponse;
-import com.chh.autosense.api.dto.LoginRequest;
-import com.chh.autosense.api.dto.LoginResponse;
-import com.chh.autosense.api.dto.RegisterRequest;
-import com.chh.autosense.api.dto.UserView;
-import com.chh.autosense.domain.model.User;
-import com.chh.autosense.repository.UserMapper;
-import com.chh.autosense.security.AuthUser;
-import com.chh.autosense.user.UserService;
+import com.chh.autosense.common.ErrorResponse;
+import com.chh.autosense.domain.dto.LoginRequest;
+import com.chh.autosense.domain.dto.LoginResponse;
+import com.chh.autosense.domain.dto.RegisterRequest;
+import com.chh.autosense.domain.dto.UserView;
+import com.chh.autosense.domain.entity.User;
+import com.chh.autosense.mapper.UserMapper;
+import com.chh.autosense.core.security.AuthUser;
+import com.chh.autosense.service.user.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;

@@ -1,8 +1,8 @@
 package com.chh.autosense.device.client;
 
-import com.chh.autosense.config.DeviceServiceProperties;
-import com.chh.autosense.device.client.DeviceServiceClient.DeviceLookupRequestException;
-import com.chh.autosense.device.client.DeviceServiceClient.DeviceServiceUnavailableException;
+import com.chh.autosense.core.device.client.DeviceServiceClient.DeviceLookupRequestException;
+import com.chh.autosense.core.device.client.DeviceServiceClient.DeviceServiceUnavailableException;
+import com.chh.autosense.core.device.client.DeviceSimulatorClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;

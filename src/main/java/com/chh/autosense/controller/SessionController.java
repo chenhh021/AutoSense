@@ -1,16 +1,16 @@
 package com.chh.autosense.controller;
 
-import com.chh.autosense.api.ApiException;
-import com.chh.autosense.api.ErrorCode;
-import com.chh.autosense.api.dto.ChatMessageView;
-import com.chh.autosense.api.dto.CreateSessionRequest;
-import com.chh.autosense.api.dto.MessageRequest;
-import com.chh.autosense.api.dto.SessionListItemView;
-import com.chh.autosense.api.dto.SessionResponse;
-import com.chh.autosense.api.sse.SseEventStream;
-import com.chh.autosense.domain.model.ChatMessage;
-import com.chh.autosense.security.AuthUser;
-import com.chh.autosense.session.SessionOrchestrator;
+import com.chh.autosense.exception.ApiException;
+import com.chh.autosense.exception.ErrorCode;
+import com.chh.autosense.domain.dto.ChatMessageView;
+import com.chh.autosense.domain.dto.CreateSessionRequest;
+import com.chh.autosense.domain.dto.MessageRequest;
+import com.chh.autosense.domain.dto.SessionListItemView;
+import com.chh.autosense.domain.dto.SessionResponse;
+import com.chh.autosense.domain.message.SseEventStream;
+import com.chh.autosense.domain.entity.ChatMessage;
+import com.chh.autosense.core.security.AuthUser;
+import com.chh.autosense.core.session.SessionOrchestrator;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Qualifier;

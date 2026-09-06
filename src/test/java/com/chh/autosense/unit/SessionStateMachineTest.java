@@ -1,7 +1,7 @@
 package com.chh.autosense.unit;
 
 import com.chh.autosense.domain.enums.SessionStatus;
-import com.chh.autosense.session.statemachine.SessionStateMachine;
+import com.chh.autosense.core.session.statemachine.SessionStateMachine;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -1,16 +1,16 @@
 package com.chh.autosense.contract;
 
-import com.chh.autosense.api.ApiException;
-import com.chh.autosense.api.ErrorCode;
+import com.chh.autosense.exception.ApiException;
+import com.chh.autosense.exception.ErrorCode;
 import com.chh.autosense.controller.AdminUserController;
 import com.chh.autosense.controller.UserController;
-import com.chh.autosense.domain.model.User;
-import com.chh.autosense.repository.UserMapper;
-import com.chh.autosense.security.AuthUser;
-import com.chh.autosense.security.BearerTokenAuthFilter;
-import com.chh.autosense.security.SecurityConfig;
-import com.chh.autosense.security.UserTokenResolver;
-import com.chh.autosense.user.UserService;
+import com.chh.autosense.domain.entity.User;
+import com.chh.autosense.mapper.UserMapper;
+import com.chh.autosense.core.security.AuthUser;
+import com.chh.autosense.core.security.BearerTokenAuthFilter;
+import com.chh.autosense.core.security.SecurityConfig;
+import com.chh.autosense.core.security.UserTokenResolver;
+import com.chh.autosense.service.user.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

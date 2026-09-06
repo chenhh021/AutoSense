@@ -1,6 +1,6 @@
 package com.chh.autosense.unit;
 
-import com.chh.autosense.session.DeviceLockService;
+import com.chh.autosense.core.session.DeviceLockService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;

@@ -1,9 +1,9 @@
 package com.chh.autosense.unit;
 
 import com.chh.autosense.config.AuthProperties;
-import com.chh.autosense.security.AuthUser;
-import com.chh.autosense.security.UserTokenResolver;
-import com.chh.autosense.user.AuthTokenService;
+import com.chh.autosense.core.security.AuthUser;
+import com.chh.autosense.core.security.UserTokenResolver;
+import com.chh.autosense.service.user.AuthTokenService;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -1,8 +1,8 @@
 package com.chh.autosense.unit;
 
-import com.chh.autosense.analysis.LangChain4jConfig;
-import com.chh.autosense.routing.DirectAnswerer;
-import com.chh.autosense.session.memory.ChatMemoryFactory;
+import com.chh.autosense.config.LangChain4jConfig;
+import com.chh.autosense.core.routing.DirectAnswerer;
+import com.chh.autosense.core.session.memory.ChatMemoryFactory;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.model.chat.response.ChatResponse;

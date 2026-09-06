@@ -1,8 +1,8 @@
 package com.chh.autosense.unit;
 
-import com.chh.autosense.aftersales.AfterSalesLocation;
-import com.chh.autosense.aftersales.HttpAfterSalesClient;
-import com.chh.autosense.aftersales.MockAfterSalesClient;
+import com.chh.autosense.core.aftersales.AfterSalesLocation;
+import com.chh.autosense.core.aftersales.HttpAfterSalesClient;
+import com.chh.autosense.core.aftersales.MockAfterSalesClient;
 import com.chh.autosense.config.AfterSalesProperties;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.junit.jupiter.api.AfterEach;

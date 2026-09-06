@@ -1,7 +1,7 @@
 package com.chh.autosense.unit;
 
-import com.chh.autosense.analysis.MockProblemAnalyzer;
-import com.chh.autosense.analysis.ProblemAnalysis;
+import com.chh.autosense.core.analysis.MockProblemAnalyzer;
+import com.chh.autosense.core.analysis.ProblemAnalysis;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

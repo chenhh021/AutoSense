@@ -1,11 +1,11 @@
 package com.chh.autosense.controller;
 
-import com.chh.autosense.api.dto.DeviceView;
-import com.chh.autosense.api.dto.RegisterDeviceRequest;
-import com.chh.autosense.device.DeviceAdapterRegistry;
-import com.chh.autosense.device.DeviceRegistryService;
-import com.chh.autosense.domain.model.Device;
-import com.chh.autosense.security.AuthUser;
+import com.chh.autosense.domain.dto.DeviceView;
+import com.chh.autosense.domain.dto.RegisterDeviceRequest;
+import com.chh.autosense.core.device.DeviceAdapterRegistry;
+import com.chh.autosense.core.device.DeviceRegistryService;
+import com.chh.autosense.domain.entity.Device;
+import com.chh.autosense.core.security.AuthUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

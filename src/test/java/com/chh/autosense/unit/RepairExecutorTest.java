@@ -1,9 +1,9 @@
 package com.chh.autosense.unit;
 
-import com.chh.autosense.device.spi.DeviceAdapter;
-import com.chh.autosense.domain.model.Device;
-import com.chh.autosense.repair.RepairExecutor;
-import com.chh.autosense.repository.RepairActionLogMapper;
+import com.chh.autosense.core.device.spi.DeviceAdapter;
+import com.chh.autosense.domain.entity.Device;
+import com.chh.autosense.core.repair.RepairExecutor;
+import com.chh.autosense.mapper.RepairActionLogMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 

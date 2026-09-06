@@ -1,11 +1,11 @@
 package com.chh.autosense.unit;
 
-import com.chh.autosense.api.ApiException;
-import com.chh.autosense.api.ErrorCode;
-import com.chh.autosense.domain.model.User;
-import com.chh.autosense.repository.UserMapper;
-import com.chh.autosense.user.AuthTokenService;
-import com.chh.autosense.user.UserService;
+import com.chh.autosense.exception.ApiException;
+import com.chh.autosense.exception.ErrorCode;
+import com.chh.autosense.domain.entity.User;
+import com.chh.autosense.mapper.UserMapper;
+import com.chh.autosense.service.user.AuthTokenService;
+import com.chh.autosense.service.user.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;

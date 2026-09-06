@@ -1,12 +1,13 @@
 package com.chh.autosense.device;
 
-import com.chh.autosense.api.ApiException;
-import com.chh.autosense.api.ErrorCode;
-import com.chh.autosense.device.client.DeviceServiceClient;
-import com.chh.autosense.device.client.DeviceServiceClient.DeviceLookupResult;
-import com.chh.autosense.device.client.DeviceServiceClient.DeviceServiceUnavailableException;
-import com.chh.autosense.domain.model.Device;
-import com.chh.autosense.repository.DeviceMapper;
+import com.chh.autosense.exception.ApiException;
+import com.chh.autosense.exception.ErrorCode;
+import com.chh.autosense.core.device.DeviceRegistryService;
+import com.chh.autosense.core.device.client.DeviceServiceClient;
+import com.chh.autosense.core.device.client.DeviceServiceClient.DeviceLookupResult;
+import com.chh.autosense.core.device.client.DeviceServiceClient.DeviceServiceUnavailableException;
+import com.chh.autosense.domain.entity.Device;
+import com.chh.autosense.mapper.DeviceMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;

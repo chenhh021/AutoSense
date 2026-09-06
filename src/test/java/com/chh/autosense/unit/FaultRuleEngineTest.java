@@ -1,8 +1,8 @@
 package com.chh.autosense.unit;
 
 import com.chh.autosense.config.DeviceTypeRegistryProperties.FaultRuleSpec;
-import com.chh.autosense.device.rule.FaultVerdict;
-import com.chh.autosense.device.rule.SimpleRuleConditionEvaluator;
+import com.chh.autosense.core.device.rule.FaultVerdict;
+import com.chh.autosense.core.device.rule.SimpleRuleConditionEvaluator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

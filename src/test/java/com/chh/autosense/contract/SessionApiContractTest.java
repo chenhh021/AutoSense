@@ -1,15 +1,15 @@
 package com.chh.autosense.contract;
 
-import com.chh.autosense.api.ApiException;
-import com.chh.autosense.api.ErrorCode;
+import com.chh.autosense.exception.ApiException;
+import com.chh.autosense.exception.ErrorCode;
 import com.chh.autosense.controller.SessionController;
-import com.chh.autosense.api.sse.SseEvent;
-import com.chh.autosense.api.sse.SseEventStream;
-import com.chh.autosense.security.AuthUser;
-import com.chh.autosense.security.BearerTokenAuthFilter;
-import com.chh.autosense.security.SecurityConfig;
-import com.chh.autosense.security.UserTokenResolver;
-import com.chh.autosense.session.SessionOrchestrator;
+import com.chh.autosense.domain.message.SseEvent;
+import com.chh.autosense.domain.message.SseEventStream;
+import com.chh.autosense.core.security.AuthUser;
+import com.chh.autosense.core.security.BearerTokenAuthFilter;
+import com.chh.autosense.core.security.SecurityConfig;
+import com.chh.autosense.core.security.UserTokenResolver;
+import com.chh.autosense.core.session.SessionOrchestrator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
