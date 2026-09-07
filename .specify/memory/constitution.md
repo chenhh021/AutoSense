@@ -1,19 +1,11 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 2.0.0
-- Rationale: 按当前项目结构重新定义强制目录约束,明确核心编排、AI 模型与业务模型边界。
-  原 repository/、entity/、dto/ 等目录约定不再适用,按不兼容规范修订升级主版本。
-- Modified principles: 核心原则 I–V 未变;调整以下开发规范:
-  - 项目结构与分层规范
-  - 命名规范
-  - Controller 层规范
-  - Service 层规范 → Service 与核心编排规范
-  - Repository 与 Entity 规范 → Mapper 与 Entity 规范
-  - DTO 规范 → DTO 与 VO 规范
-  - 异常处理规范
-- Added sections: 无独立新增章节;在项目结构章节补充仓库布局、目录职责与既有代码迁移说明。
-- Removed sections: 无
-- Follow-up TODOs: 无未填写占位符;既有代码偏离及后续迁移安排见项目结构与分层规范。
+- Version change: 2.2.0 → 2.3.0
+- Rationale: 新增 AI Service 提示词资源化与注解加载要求,实质性扩充 AI 开发规范。
+- Modified principles: IV. AI 集成规范(LangChain4j)补充提示词资源化约束;同步项目资源目录和评审要求。
+- Added sections: AI Service 提示词规范。
+- Removed sections: 无。
+- Follow-up TODOs: 无未填写占位符;既有内联提示词迁移、资源校验及相关 plan/tasks 更新在后续功能工作流中落实。
 -->
 
 # AutoSense Constitution
@@ -55,6 +47,9 @@ SQL 注入与缓存雪崩类问题。
 直接调用模型厂商的原生 HTTP/SDK 接口。模型提供商、模型名称、温度等参数 MUST
 通过配置文件注入(见原则 V),便于切换模型与调整参数。
 
+AI Service 使用的固定提示词 MUST 独立存放为资源文件,系统提示词 MUST 通过
+`@SystemMessage(fromResource = "...")` 加载,具体遵循 AI Service 提示词规范。
+
 Rationale: 通过 LangChain4j 抽象层隔离模型厂商差异,降低供应商锁定风险。
 
 ### V. 配置外部化(不可协商)
@@ -77,6 +72,7 @@ Rationale: 配置外置是环境可移植性与凭据安全的基本要求,硬�
 | ORM | MyBatis-Flex | 见原则 III |
 | 缓存 | Redis | 必须设置 TTL 与键命名规范,见原则 III |
 | AI 框架 | LangChain4j | 见原则 IV |
+| 日志 | SLF4J + Log4j 2 | 统一门面与实现,日志文案使用英文,见日志规范 |
 | 配置管理 | `application.yaml` + `@ConfigurationProperties` | 见原则 V |
 
 以上选型为约束性要求;替换任一组件 MUST 通过章程修订流程(见 Governance)。
@@ -89,7 +85,8 @@ Rationale: 配置外置是环境可移植性与凭据安全的基本要求,硬�
 ```text
 AutoSense/
 ├── src/main/java/com/chh/autosense/  # Spring Boot 后端代码
-├── src/main/resources/              # 应用配置、数据库建表及初始化脚本
+├── src/main/resources/              # 应用配置、数据库脚本及提示词资源
+│   └── prompt/                     # AI Service 固定提示词与模板
 ├── src/test/java/                   # 后端自动化测试
 ├── frontend/                       # Vue 前端工程
 ├── scripts/                        # 项目脚本及数据库迁移脚本
@@ -191,6 +188,50 @@ MUST NOT 为填充空目录而创建没有业务需求的类。
 并按 DTO/VO 的实际职责调整类型归属,保持既有 API 契约兼容。
 既有 AI 输出类型也 MUST 按用途评估归属,不得仅因参与 AI 调用就迁移业务枚举。
 
+## AI Service 提示词规范
+
+AI Service 使用的固定提示词及模板 MUST 单独存放于 `src/main/resources/prompt/`。
+该目录是本项目 Maven 资源目录下的 `prompt/`,运行时对应 classpath 的 `/prompt/`。
+
+角色设定、任务规则、行为限制及项目编写的输出约束 MUST 放入系统提示词资源,
+由 AI Service 方法上的 `@SystemMessage(fromResource = "...")` 引用。
+MUST NOT 将这些内容硬编码在 Java 字符串、文本块、常量、注解 `value` 或工厂拼接逻辑中。
+
+提示词文件 SHOULD 使用 UTF-8 的 `.txt` 或 `.md`,文件名 SHOULD 表达对应能力。
+例如,文件 `src/main/resources/prompt/intent-router.txt` 的加载方式为:
+
+```java
+@SystemMessage(fromResource = "/prompt/intent-router.txt")
+```
+
+`fromResource` MUST 使用以 `/prompt/` 开头的 classpath 资源路径,
+MUST NOT 填写 `src/main/resources/`、操作系统绝对路径或工作目录相对路径。
+前导 `/` 表示 classpath 根目录,避免资源查找受 AI Service 接口所在包影响。
+资源加载能力见 [LangChain4j AI Services 官方说明](https://docs.langchain4j.dev/tutorials/ai-services/#systemmessage);
+当前 1.0.1 的 `SystemMessage` 定义及加载实现已按对应版本源码核对。
+
+用户本轮输入、历史与检索结果属于运行时数据,通过方法参数及 `@UserMessage`、
+`@V` 等参数绑定传入;MUST NOT 将其作为可信系统规则。
+如需固定的用户消息包装模板,也 MUST 存放在同一资源目录,
+使用 `@UserMessage(fromResource = "...")` 引用;系统规则仍按上述 `@SystemMessage` 方式加载。
+资源中的模板变量 MUST 与方法参数绑定名称一致,不得通过 Java 字符串拼接替代固定模板。
+
+构建 MUST 将提示词资源打包到 classpath,并保留模板变量与文本编码。
+AI Service 创建/装配阶段 MUST 校验引用资源存在、可读取且内容非空;
+失败时明确报告配置错误,MUST NOT 静默使用空提示词或硬编码默认内容继续调用模型。
+资源检查不需要调用远程模型;MUST NOT 假定仅创建代理就已验证所有资源。
+
+相关测试 MUST 验证实际 AI Service 加载资源后的消息内容与变量绑定,
+并覆盖缺失或空资源的失败行为;仅检查文件存在或注解声明不足以证明接入完成。
+提示词资源 MUST NOT 包含凭据,日志 MUST NOT 输出内部提示词正文。
+
+既有实现迁移说明:当前 `config/LangChain4jConfig` 中仍有内联提示词。
+后续维护相关功能时,MUST 在对应 `plan.md`、`tasks.md` 中安排资源拆分、
+注解引用与加载验证,保持现有业务意图、AI 输出契约及用户输入/历史边界。
+
+Rationale: 将提示词与 Java 实现分开维护,通过统一资源路径和注解加载明确调用关系,
+使模板修改可审查、打包可验证,避免重复内联内容及路径差异导致行为不一致。
+
 ## 命名规范
 
 代码 MUST 遵循标准 Java 命名约定:
@@ -261,6 +302,14 @@ Mapper MUST 仅承担持久化和数据访问职责,MUST NOT 包含应用业务�
 
 Entity MUST 表示持久化或领域状态,并放置于 `domain/entity/`。
 
+Entity SHOULD 使用 Lombok `@Getter` + `@Setter` 简化访问器代码,并仅保留持久化框架
+实例化和业务创建所需的构造器。必要构造器 MAY 由 Lombok 生成或显式定义。
+
+Entity SHOULD NOT 默认使用 `@Data`;如需 `equals`、`hashCode` 或 `toString`,
+SHOULD 按实体的实际语义单独定义或选择对应注解,使对象行为保持明确。
+
+Rationale: 分别声明访问器和必要构造器,减少样板代码,同时明确持久化实体的对象行为。
+
 Entity SHOULD NOT 直接作为公共 API 的请求或响应模型暴露给客户端。
 
 ## DTO 与 VO 规范
@@ -296,6 +345,18 @@ MUST 按对象职责而非仅按类名后缀决定 DTO/VO 归属。
 
 Entity MUST NOT 直接复用为请求 DTO。
 
+DTO MUST 根据创建后是否需要修改数据明确选择可变或不可变形态:
+
+- 可变 DTO SHOULD 使用 Lombok `@Data` 或 `@Getter` + `@Setter` 简化代码;
+  仅需访问器时 SHOULD 选择 `@Getter` + `@Setter`,构造器按实际需要提供。
+- 不可变 DTO SHOULD 优先使用 Java 21 `record`;存在明确的框架兼容或对象模型限制时,
+  MAY 使用常规类,并在对应 `plan.md` 中说明原因。
+
+既有对象改用 Lombok 或 `record` 时,MUST 验证序列化、字段校验和框架绑定的兼容性。
+对象定义方式不改变 DTO、VO 与 Entity 的职责及目录归属。
+
+Rationale: 按可变性选择对象形态,减少重复访问器和构造代码,使数据修改意图清晰。
+
 数据格式和字段级校验 SHOULD 在 DTO 中完成。
 
 依赖数据库状态或领域状态的业务校验 MUST 在应用服务或核心业务入口完成。
@@ -312,6 +373,75 @@ Controller SHOULD NOT 重复编写异常到 HTTP 响应的转换逻辑。
 API 错误响应 SHOULD 使用统一格式。
 
 内部堆栈信息、凭据及其他敏感实现细节 MUST NOT 暴露给客户端。
+
+## 日志规范
+
+后端业务代码 MUST 统一通过 SLF4J 日志门面记录日志,运行时 MUST 使用 Log4j 2
+作为日志实现。SHOULD 使用 Lombok `@Slf4j` 简化 Logger 声明;不使用 Lombok 的类
+MAY 使用 `org.slf4j.LoggerFactory`。MUST NOT 使用 `System.out`、
+`System.err` 或 `printStackTrace()` 替代应用日志。
+
+日志依赖 MUST 与项目 Spring Boot 版本兼容,保持单一 SLF4J 日志提供者,
+MUST NOT 同时装配冲突的日志实现或形成双向桥接。具体接入参考
+[Apache Log4j 官方说明](https://logging.apache.org/log4j/2.x/manual/installation.html),
+依赖调整与配置在对应 `plan.md` 中明确。
+
+项目编写的日志消息模板、固定事件名称、字段名称和原因标签 MUST 使用英文。
+需要保留的业务数据或第三方异常上下文按脱敏规则处理;日志语言约束不改变面向用户的响应语言。
+
+以下关键位置 MUST 记录可追溯日志,涵盖实际发生的开始、结果、拒绝或失败:
+
+- 关键业务操作入口与结束,包括账号状态变更、设备绑定和会话处理结果;
+- 意图识别结果、能力分发、澄清及关键状态迁移;
+- 身份或权限校验拒绝、参数校验失败、并发冲突与上下文失效;
+- 大模型、知识检索与外部设备服务调用的结果、耗时、超时和异常;
+- 设备控制请求的校验、确认、取消、过期、命令执行及复检结果;
+- 未预期异常与最终失败处理。
+
+日志 MUST 在上下文可用时携带请求或业务关联标识,例如 `requestId`、
+`sessionId`、`messageId`、`round`、`userId`、`deviceId`。
+涉及状态变迁或外部调用时,SHOULD 补充 `operation`、`fromState`、
+`toState`、`result`、`errorCode`、`elapsedMs` 等实际适用字段。
+MUST NOT 为补齐日志字段而伪造标识、成功结果或设备状态。
+
+日志级别 MUST 按事件性质选择:
+
+| 级别 | 使用范围 |
+| --- | --- |
+| ERROR | 未预期异常、关键依赖故障或无法完成的系统处理 |
+| WARN | 可预期但需要关注的拒绝、冲突、超时或降级 |
+| INFO | 关键业务开始/结果、状态迁移和已确认的设备操作 |
+| DEBUG / TRACE | 排查问题所需的补充信息,生产默认关闭 |
+
+预期的参数或权限拒绝 MUST NOT 一律记录为 ERROR。
+同一异常堆栈 SHOULD 在负责最终处理的边界记录一次,避免各层重复打印;
+需要诊断堆栈时 SHOULD 将脱敏后的异常对象作为日志参数,保留必要原因链。
+
+日志 MUST 使用 SLF4J 参数化占位符,避免通过字符串拼接构造动态消息。
+例如:
+
+```java
+log.info("Intent routed: sessionId={}, capability={}", sessionId, capability);
+log.warn("Device access denied: userId={}, deviceId={}", userId, deviceId);
+```
+
+日志 MUST 遵循安全与配置规范,不得包含密码、登录令牌、API Key、连接凭据或内部提示词。
+MUST NOT 直接打印完整请求/响应对象、完整用户对话或完整模型输入输出;
+仅记录定位问题所需的脱敏摘要、标识与结果,并处理外部文本中的换行等控制字符。
+
+日志级别、输出格式、输出位置以及文件滚动与保留策略(使用文件输出时)
+MUST 通过配置管理。MUST NOT 在高频轮询、逐 token 推送或集合循环中逐项输出
+INFO 日志;此类路径 SHOULD 汇总结果或使用受控的 DEBUG/TRACE 日志。
+
+设备控制等业务审计 MUST 按相应功能规格持久化;运行日志 MUST NOT 替代确认记录、
+执行记录或其他要求可靠保存的审计数据。
+
+既有实现说明:当前代码已有 `@Slf4j`/SLF4J 用法,`pom.xml` 尚未显式接入 Log4j 2。
+后续实施时 MUST 核对实际日志依赖、完成必要接入并按本规范调整日志位置与英文文案,
+不得仅因已有 Logger 声明就认定日志规范已落实。
+
+Rationale: 统一日志调用、实现和语言,以关键事件与关联标识支持排障和追溯,
+同时控制重复输出、日志量与敏感信息暴露。
 
 ## 安全与配置规范
 
@@ -397,6 +527,10 @@ implementation
 - 每次提交前 MUST 通过 `./mvnw verify`(或等效构建)且测试全部通过。
 - 代码评审 MUST 核对本章程原则的合规性,特别是配置外部化、分层依赖、
   数据访问和敏感信息处理要求。
+- 代码评审 MUST 核对关键路径日志、英文文案、级别、关联标识与脱敏要求,
+  并确认日志没有替代业务审计或引入重复输出。
+- 代码评审 MUST 核对 AI Service 提示词资源目录、`fromResource` 引用、变量绑定与加载验证,
+  并确认固定提示词未在 Java 代码中重复硬编码。
 - 引入新依赖 MUST 说明理由并确认与本章程技术栈约束不冲突。
 
 ## Governance
@@ -418,4 +552,4 @@ implementation
 
 任何违反原则而引入的额外复杂性 MUST 给出书面理由,否则必须简化。
 
-**Version**: 2.0.0 | **Ratified**: 2026-08-21 | **Last Amended**: 2026-09-06
+**Version**: 2.3.0 | **Ratified**: 2026-08-21 | **Last Amended**: 2026-09-07

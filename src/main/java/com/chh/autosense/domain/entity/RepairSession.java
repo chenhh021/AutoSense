@@ -3,14 +3,18 @@ package com.chh.autosense.domain.entity;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
 import com.mybatisflex.annotation.Table;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 /**
  * 修复会话(data-model.md §3);终态与迁移见 SessionStatus 状态机。
  */
-@Data
+@Getter
+@Setter
+@NoArgsConstructor
 @Table("repair_session")
 public class RepairSession {
     @Id(keyType = KeyType.Auto)
@@ -22,6 +26,8 @@ public class RepairSession {
     private String conclusion;
     /** 结论附加数据(JSON):manualSteps / afterSales 等 */
     private String conclusionExtra;
+    private Long processingMessageId;
+    private LocalDateTime processingDeadlineAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

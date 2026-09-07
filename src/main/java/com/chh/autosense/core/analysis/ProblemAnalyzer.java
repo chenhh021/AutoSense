@@ -1,11 +1,16 @@
 package com.chh.autosense.core.analysis;
 
+import com.chh.autosense.ai.model.ProblemAnalysis;
+import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
+
 /**
- * 语义分析(FR-002)。实现:MockProblemAnalyzer(dev)/ LangChain4j 实现(prod)。
- *
- * @param sessionId 用于对话记忆(memoryId,最近 20 条历史可见,R15)
+ * 语义分析（AI 候选输出）。实现：MockProblemAnalyzer（显式 mock）/ LangChain4j 真实代理（real）。
  */
 public interface ProblemAnalyzer {
 
-    ProblemAnalysis analyze(String userText, long sessionId);
+    /**
+     * @param text    用户输入原文
+     * @param history 同轮只读历史快照（最近 20 条 USER/ASSISTANT）
+     */
+    ProblemAnalysis analyze(String text, ConversationHistorySnapshot history);
 }

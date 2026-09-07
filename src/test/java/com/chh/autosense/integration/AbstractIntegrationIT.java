@@ -3,6 +3,7 @@ package com.chh.autosense.integration;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.TestInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -80,6 +81,8 @@ public abstract class AbstractIntegrationIT {
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+        registry.add("spring.data.redis.password", () -> "");
+        registry.add("spring.sql.init.mode", () -> "always");
         registry.add("autosense.llm.mode", () -> "mock");
         registry.add("autosense.device-service.base-url", () -> SIMULATOR_BASE_URL);
         registry.add("autosense.aftersales.mock-enabled", () -> "true");
@@ -87,7 +90,8 @@ public abstract class AbstractIntegrationIT {
     }
 
     @BeforeAll
-    static void waitForSimulator() {
+    static void waitForSimulator(TestInfo testInfo) {
+        if (!testInfo.getTags().contains("device-simulator")) return;
         HttpClient http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2)).build();
         HttpRequest probe = HttpRequest.newBuilder()

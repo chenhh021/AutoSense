@@ -3,6 +3,7 @@ package com.chh.autosense.core.device.client;
 import com.chh.autosense.config.DeviceServiceProperties;
 import com.chh.autosense.core.device.spi.DeviceUnreachableException;
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -21,8 +22,10 @@ import java.util.Map;
  * deviceSimulator HTTP 客户端(research R11,2026-08-27):唯一设备交互实现。
  * 诊断/命令契约见仓库根《后端接口说明.md》，按 SN 查询契约见
  * documents/新增接口说明-按SN查询设备.md。
+ * 外部调用记录英文 operation/result/elapsedMs,不打印原始 SN/名称/响应正文。
  */
 @Component
+@Slf4j
 public class DeviceSimulatorClient implements DeviceServiceClient {
 
     private final RestClient client;
@@ -46,17 +49,21 @@ public class DeviceSimulatorClient implements DeviceServiceClient {
     @Override
     @SuppressWarnings("unchecked")
     public Map<String, Object> getDeviceState(long simulatorDeviceId) {
+        long startedNanos = System.nanoTime();
         try {
             Map<String, Object> state = client.get()
                     .uri("/api/v1/devices/{id}/data", simulatorDeviceId)
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {
                     });
+            logCall("getState", "OK", startedNanos);
             return state == null ? Map.of() : new HashMap<>(state);
         } catch (HttpClientErrorException.NotFound e) {
+            logCall("getState", "NOT_FOUND", startedNanos);
             throw new DeviceUnreachableException(
                     "设备不存在或已停止运行(模拟器 id=%d)".formatted(simulatorDeviceId));
         } catch (HttpClientErrorException e) {
+            logCall("getState", "REJECTED", startedNanos);
             throw new DeviceUnreachableException("设备状态读取失败: " + simulatorMessage(e));
         }
     }
@@ -67,17 +74,21 @@ public class DeviceSimulatorClient implements DeviceServiceClient {
         Map<String, Object> body = new HashMap<>();
         body.put("command", command);
         body.put("parameters", parameters == null ? Map.of() : parameters);
+        long startedNanos = System.nanoTime();
         try {
             client.post()
                     .uri("/api/v1/devices/{id}/commands", simulatorDeviceId)
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
+            logCall("executeCommand", "OK", startedNanos);
             return new RepairResult(true, "command %s executed".formatted(command));
         } catch (HttpClientErrorException.NotFound e) {
+            logCall("executeCommand", "NOT_FOUND", startedNanos);
             throw new DeviceUnreachableException(
                     "设备不存在或已停止运行(模拟器 id=%d)".formatted(simulatorDeviceId));
         } catch (HttpClientErrorException e) {
+            logCall("executeCommand", "REJECTED", startedNanos);
             // 失败即停(FR-017):如实透传模拟器错误,不重试
             return new RepairResult(false, simulatorMessage(e));
         }
@@ -85,41 +96,62 @@ public class DeviceSimulatorClient implements DeviceServiceClient {
 
     @Override
     public RepairResult startDevice(long simulatorDeviceId) {
+        long startedNanos = System.nanoTime();
         try {
             client.post()
                     .uri("/api/v1/devices/{id}/start", simulatorDeviceId)
                     .retrieve()
                     .toBodilessEntity();
+            logCall("startDevice", "OK", startedNanos);
             return new RepairResult(true, "device started");
         } catch (HttpClientErrorException.NotFound e) {
+            logCall("startDevice", "NOT_FOUND", startedNanos);
             throw new DeviceUnreachableException(
                     "设备不存在(模拟器 id=%d)".formatted(simulatorDeviceId));
         } catch (HttpClientErrorException e) {
+            logCall("startDevice", "REJECTED", startedNanos);
             return new RepairResult(false, simulatorMessage(e));
         }
     }
 
     @Override
     public DeviceLookupResult findDeviceBySn(String sn) {
+        long startedNanos = System.nanoTime();
         try {
             JsonNode response = client.get()
                     .uri("/api/v1/devices/by-sn/{sn}", sn)
                     .retrieve()
                     .body(JsonNode.class);
-            return parseLookupResponse(sn, response);
+            DeviceLookupResult result = parseLookupResponse(sn, response);
+            logCall("findBySn", Boolean.TRUE.equals(result.exists()) ? "HIT" : "MISS",
+                    startedNanos);
+            return result;
         } catch (HttpClientErrorException.BadRequest e) {
+            logCall("findBySn", "BAD_REQUEST", startedNanos);
             throw new DeviceLookupRequestException("SN 格式不合法");
         } catch (HttpServerErrorException | ResourceAccessException e) {
+            logCall("findBySn", "UNAVAILABLE", startedNanos);
             throw unavailable(e);
         } catch (HttpClientErrorException e) {
+            logCall("findBySn", "UNAVAILABLE", startedNanos);
             throw unavailable(e);
         } catch (DeviceServiceUnavailableException | DeviceLookupRequestException e) {
+            logCall("findBySn", "INVALID_RESPONSE", startedNanos);
             throw e;
         } catch (RestClientException e) {
+            logCall("findBySn", "UNAVAILABLE", startedNanos);
             throw unavailable(e);
         } catch (RuntimeException e) {
+            logCall("findBySn", "UNAVAILABLE", startedNanos);
             throw unavailable(e);
         }
+    }
+
+    /** 外部调用统一英文日志:仅 operation/result/elapsedMs,不含 SN/名称/正文。 */
+    private void logCall(String operation, String result, long startedNanos) {
+        long elapsedMs = (System.nanoTime() - startedNanos) / 1_000_000;
+        log.info("Device service call completed: operation={}, result={}, elapsedMs={}",
+                operation, result, elapsedMs);
     }
 
     private DeviceLookupResult parseLookupResponse(String requestedSn, JsonNode response) {

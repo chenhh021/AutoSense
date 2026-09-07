@@ -1,24 +1,21 @@
 package com.chh.autosense.core.session;
 
-import com.chh.autosense.domain.enums.SessionStatus;
-
 /**
- * 进行中会话上下文(Redis,键 autosense:session:{id},30min 滚动 TTL,R6)。
- * 终态会话以 MySQL 为准。
+ * 能力等待上下文快照（Redis 键 autosense:session:v2:{sessionId}，data-model §6）。
+ * 完整 JSON 原子替换；version 用于使旧格式/旧字段安全失效。
+ * 只记录归属与轮次等关联标识，不保存任何控制授权或确认结论。
  */
 public record SessionContext(
+        int version,
         Long sessionId,
         Long userId,
-        SessionStatus status,
-        /** 多候选设备时的候选 ID 列表(JSON 数组) */
-        String candidateDeviceIds,
-        /** 已确认的目标设备 */
-        Long deviceId,
-        /** 已提取的设备类型 */
-        String deviceType,
-        /** 等待中的修复动作码(CONFIRMING_REPAIR) */
-        String pendingActionCode,
-        /** 等待中的修复动作参数 JSON(CONFIRMING_REPAIR,来自规则引擎) */
-        String pendingActionParams
+        Integer round,
+        /** 进入等待态时本轮的处理消息 ID */
+        Long messageId,
+        /** 拥有该等待态的能力名（AssistantCapability） */
+        String capability,
+        /** 等待态状态名（SessionStatus） */
+        String waitingState
 ) {
+    public static final int CURRENT_VERSION = 2;
 }

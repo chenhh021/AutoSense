@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * (如 brightness=3 命中 brightness&lt;5 规则)。SSE 流同步关闭,响应体即完整事件流。
  * 修复失败/无重试由 RepairExecutorTest 单元覆盖(模拟器 400 透传)。
  */
+@org.junit.jupiter.api.Tag("device-simulator")
 class AutoRepairFlowIT extends AbstractIntegrationIT {
 
     private static final Pattern SESSION_ID = Pattern.compile("\"sessionId\":(\\d+)");

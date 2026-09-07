@@ -9,6 +9,8 @@ public enum SessionStatus {
     CREATED,
     /** 意图分类(FR-019) */
     ROUTING,
+    DISPATCHING,
+    FAILED_REQUEST,
     /** 常识/型号问题直答(FR-019 路由 1/3) */
     ANSWERING,
     /** 网点查询执行(FR-019 路由 4 / FR-011) */
@@ -41,7 +43,7 @@ public enum SessionStatus {
         return switch (this) {
             case REJECTED_UNSUPPORTED, REJECTED_FORBIDDEN, REJECTED_BUSY,
                  FAILED_DEVICE_UNREACHABLE, COMPLETED_FIXED, COMPLETED_UNFIXED,
-                 GUIDED_MANUAL, COMPLETED_ANSWERED, COMPLETED_AFTERSALES -> true;
+                 GUIDED_MANUAL, COMPLETED_ANSWERED, COMPLETED_AFTERSALES, FAILED_REQUEST -> true;
             default -> false;
         };
     }

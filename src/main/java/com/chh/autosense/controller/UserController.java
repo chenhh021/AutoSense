@@ -4,9 +4,8 @@ import com.chh.autosense.common.ErrorResponse;
 import com.chh.autosense.domain.dto.LoginRequest;
 import com.chh.autosense.domain.dto.LoginResponse;
 import com.chh.autosense.domain.dto.RegisterRequest;
-import com.chh.autosense.domain.dto.UserView;
+import com.chh.autosense.domain.vo.UserView;
 import com.chh.autosense.domain.entity.User;
-import com.chh.autosense.mapper.UserMapper;
 import com.chh.autosense.core.security.AuthUser;
 import com.chh.autosense.service.user.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -49,11 +48,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     private final UserService userService;
-    private final UserMapper userMapper;
 
-    public UserController(UserService userService, UserMapper userMapper) {
+    public UserController(UserService userService) {
         this.userService = userService;
-        this.userMapper = userMapper;
     }
 
     /**
@@ -195,7 +192,7 @@ public class UserController {
     public UserView me(
             @Parameter(hidden = true)
             @AuthenticationPrincipal AuthUser authUser) {
-        User user = userMapper.selectOneById(authUser.userId());
+        User user = userService.currentUser(authUser.userId());
         return UserView.of(user);
     }
 

@@ -1,9 +1,9 @@
 package com.chh.autosense.controller;
 
 import com.chh.autosense.common.ErrorResponse;
-import com.chh.autosense.domain.dto.AdminUserPageView;
+import com.chh.autosense.domain.vo.AdminUserPageView;
 import com.chh.autosense.domain.dto.SetUserStatusRequest;
-import com.chh.autosense.domain.dto.UserView;
+import com.chh.autosense.domain.vo.UserView;
 import com.chh.autosense.core.security.AuthUser;
 import com.chh.autosense.service.user.UserService;
 import io.swagger.v3.oas.annotations.Operation;

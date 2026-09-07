@@ -4,6 +4,7 @@ package com.chh.autosense.domain.enums;
  * 会话结论类型(data-model.md §3 conclusion_type)。
  */
 public enum ConclusionType {
+    ERROR,
     /** 已自动修复并复检通过 */
     FIXED,
     /** 无法自动修复,给出人工分步指引 */

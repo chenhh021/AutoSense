@@ -40,6 +40,14 @@ public class BearerTokenAuthFilter extends OncePerRequestFilter {
                                     "ROLE_" + user.role().toUpperCase())));
             SecurityContextHolder.getContext().setAuthentication(auth);
             request.setAttribute(ATTR_USER, user);
+            // 认证成功后补 MDC userId,请求结束清除,避免线程复用串号
+            org.slf4j.MDC.put("userId", String.valueOf(user.userId()));
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                org.slf4j.MDC.remove("userId");
+            }
+            return;
         }
         chain.doFilter(request, response);
     }

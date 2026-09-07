@@ -8,11 +8,16 @@ import com.chh.autosense.mapper.RepairActionLogMapper;
 import com.chh.autosense.mapper.RepairSessionMapper;
 import com.chh.autosense.core.session.statemachine.SessionStateMachine;
 import org.springframework.stereotype.Component;
+import lombok.extern.slf4j.Slf4j;
+import com.chh.autosense.utils.LogContextUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 状态迁移助手(T016):校验合法性 → 更新 repair_session → 写 repair_action_log(FR-013)。
  */
 @Component
+@Slf4j
 public class SessionTransitionLog {
 
     private final SessionStateMachine stateMachine;
@@ -37,5 +42,19 @@ public class SessionTransitionLog {
         logEntry.setResult(ActionResult.SUCCESS.name());
         logEntry.setMessage(null);
         actionLogMapper.insert(logEntry);
+        long sessionId = session.getId();
+        afterCommit(() -> log.info("Session state changed: sessionId={}, fromState={}, toState={}",
+                sessionId, from, to));
+    }
+
+    public static void afterCommit(Runnable action) {
+        Runnable contextual = LogContextUtils.wrap(LogContextUtils.snapshot(), action);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { contextual.run(); }
+            });
+        } else {
+            contextual.run();
+        }
     }
 }

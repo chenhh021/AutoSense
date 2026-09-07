@@ -3,14 +3,18 @@ package com.chh.autosense.domain.entity;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
 import com.mybatisflex.annotation.Table;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 /**
  * 设备绑定(data-model.md §1)。只持久化稳定模拟器元数据；运行状态按需实时读取。
  */
-@Data
+@Getter
+@Setter
+@NoArgsConstructor
 @Table("device")
 public class Device {
     @Id(keyType = KeyType.Auto)

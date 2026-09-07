@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Properties>
+        <Property name="defaultConsolePattern">%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t requestId=%X{requestId} userId=%X{userId} sessionId=%X{sessionId} messageId=%X{messageId} round=%X{round} deviceId=%X{deviceId} %m%n%ex</Property>
+        <Property name="consolePattern">${sys:CONSOLE_LOG_PATTERN:-${defaultConsolePattern}}</Property>
+    </Properties>
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="${consolePattern}"/>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <Logger name="com.chh.autosense" level="INFO"/>
+        <!-- MyBatis SQL 日志含参数原文(用户输入/口令散列),任何级别不得输出 -->
+        <Logger name="com.chh.autosense.mapper" level="INFO"/>
+        <Logger name="dev.langchain4j" level="OFF"/>
+        <Logger name="dev.ai4j" level="OFF"/>
+        <Logger name="org.apache.hc.client5.http.wire" level="OFF"/>
+        <Logger name="org.apache.http.wire" level="OFF"/>
+        <Logger name="reactor.netty.http.client" level="OFF"/>
+        <Root level="INFO">
+            <AppenderRef ref="Console"/>
+        </Root>
+    </Loggers>
+</Configuration>

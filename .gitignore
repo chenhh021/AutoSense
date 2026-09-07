@@ -43,3 +43,8 @@ build/
 Thumbs.db
 *.tmp
 *.swp
+
+### Frontend generated files ###
+node_modules/
+dist/
+.gradle/

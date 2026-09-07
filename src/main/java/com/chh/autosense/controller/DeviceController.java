@@ -1,12 +1,13 @@
 package com.chh.autosense.controller;
 
-import com.chh.autosense.domain.dto.DeviceView;
+import com.chh.autosense.domain.vo.DeviceView;
 import com.chh.autosense.domain.dto.RegisterDeviceRequest;
 import com.chh.autosense.core.device.DeviceAdapterRegistry;
 import com.chh.autosense.core.device.DeviceRegistryService;
 import com.chh.autosense.domain.entity.Device;
 import com.chh.autosense.core.security.AuthUser;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,8 +22,10 @@ import java.util.Map;
 
 /**
  * 设备登记与查询 API(FR-020,contracts §6/§7)。
+ * 列表日志按整体汇总(count/onlineCount),不逐项打印,不含 SN/名称。
  */
 @RestController
+@Slf4j
 @RequestMapping("/api/v1/devices")
 public class DeviceController {
 
@@ -46,9 +49,13 @@ public class DeviceController {
 
     @GetMapping
     public Map<String, List<DeviceView>> listMine(@AuthenticationPrincipal AuthUser user) {
-        return Map.of("devices", registryService.listMine(user.userId()).stream()
+        List<DeviceView> devices = registryService.listMine(user.userId()).stream()
                 .map(d -> toView(d, registryService.isOnline(d)))
-                .toList());
+                .toList();
+        long onlineCount = devices.stream().filter(DeviceView::online).count();
+        log.info("Device operation completed: operation=list, result=OK, count={}, onlineCount={}",
+                devices.size(), onlineCount);
+        return Map.of("devices", devices);
     }
 
     private DeviceView toView(Device d, boolean online) {

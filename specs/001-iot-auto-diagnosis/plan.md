@@ -1,111 +1,89 @@
 # Implementation Plan: IoT 设备自动诊断与修复
 
-**Branch**: `001-iot-auto-diagnosis` | **Date**: 2026-08-22(2026-08-27、2026-08-29、2026-09-04 刷新) | **Spec**: [spec.md](./spec.md)
+> **2026-09-07 规格拆分说明**：下文保留拆分前的设计/契约/验证指南作为参考，尚未按五个 feature 的新边界重新规划；其中工作区状态、需求编号和流程描述均属于编制时上下文。当前需求以[feature 总览](../README.md)及各自 spec 为准；原需求可查[拆分前规格](history/20260907-before-feature-split.md)。复用适用部分时须核对新职责，本文不代表新 feature 已实现或验收通过。
+
+**Branch**: `001-iot-auto-diagnosis`（活动功能标识） | **Date**: 2026-09-07 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `specs/001-iot-auto-diagnosis/spec.md`
 
+**Workspace**: 实际 Git 分支为 `master`；`.specify/feature.json` 指向本功能目录，
+setup-plan 返回上述功能标识。本次不切换分支。
+**Constitution**: [2.0.0](../../.specify/memory/constitution.md)。
+
 ## Summary
 
-提供一个 API-only 的对话式设备服务：用户输入经**意图路由**(FR-019）分流为——
-(1) 常识性问题直接回答（型号特异性问题本期并入此路由，RAG 后续增强）;
-(2) 可自动修复/操作的问题进入诊断修复闭环：定位设备（本平台绑定表 + 模拟器引用)→
-经 deviceSimulator 采集设备 state → **配置化故障规则**判定（可自动修复/不可修复/无异常）
-→ 全部改变设备状态的操作经用户确认（FR-008 扩大）后下发模拟器命令 → 复检输出结论；
-不可修复时输出人工步骤或附近售后网点；(4) 独立网点查询（本期固定 mock 数据，后续
-地图工具）。对话以 session id 长期保留，支持历史列表/继续对话，LLM 端记忆窗口为最近
-20 条消息（FR-018)；终态对话可在同一线程发起新一轮诊断。核心编排仍为**确定性状态机**,
-LLM 仅做意图分类、语义分析与诊断推理，设备写操作只能经状态机调用适配器白名单。
+本功能提供对话式诊断修复 API：登录用户按 SN 绑定模拟器已有设备，以自然语言发起
+问题；意图分类将输入路由至常识回答、设备诊断、售后或澄清。受支持灯泡经实时诊断、
+配置化规则及知识检索生成方案，所有改变设备状态的操作经用户确认后执行，失败即停并复检。
+对话和关键过程长期保存，最近 20 条历史对后续模型调用可见，POST 通过 SSE 返回处理过程。
 
-**2026-08-27 重大变更**：设备交互由项目内硬编码 mock 改为 HTTP 对接外部
-**deviceSimulator** 服务（base-url 经 yml 配置）；本期诊断范围收敛为智能灯泡
-（LITE:LA001/LB001)，路由器/空调暂停；引入平台设备绑定与长期对话保留。
+本次重新规划现有规格的实施边界，使设计符合当前目录和章程；不增加新产品功能，
+不将仓库已有前端误写成不存在，也不扩大规格要求的后端 API 交付范围。
+保持 SN 全局唯一、稳定元数据、角色与归属隔离、外部设备服务和既有 JSON/SSE 契约。
 
-**2026-08-29 增量（US3 用户管理）**：新增用户账号体系——注册（账号/密码/确认密码,
-账号 4~32 位字母数字下划线唯一、密码 8~64 位须含字母+数字、BCrypt 加密存储)、
-登录颁发随机令牌（Redis 存储 + TTL,`Authorization: Bearer <token>` 鉴权)、
-获取当前登录用户（脱敏）、注销（删令牌立即失效）；角色分 user/admin，管理员最小
-管理集=用户列表（分页/搜索）+ 禁用/启用（isDelete，禁用即令牌失效），本期不提供
-改角色/重置密码；每用户仅见本人设备与对话（沿用 FR-015 归属过滤）。开发态
-`user-{id}` 令牌保留为 `AUTH_DEV_MODE` 显式开关，真实令牌优先，生产必须关闭。
-
-**2026-09-04 增量（FR-020 设备添加修订）**：`POST /api/v1/devices` 改为只接收
-SN 与用户显示名称；平台不再代建设备，而是调用 deviceSimulator
-`GET /api/v1/devices/by-sn/{sn}` 发现运行中的既有设备，再写入用户绑定。SN 全局唯一，
-同用户或跨用户重复均返回冲突；不支持诊断的类型/型号仍允许加入列表，支持性在诊断
-入口动态判断。平台只保存模拟器 ID、SN、类型/型号编码与 ID、模拟器原始名称及用户
-显示名称，不保存 `state`、`running_status` 或模拟器时间戳。
+当前代码已有账号、SN 绑定、规则诊断及 mock 端到端路径；仍需落实 AI 工厂/模型归位、
+展示 VO 迁移、Controller 持久化访问收敛、有效确认与租约、可靠令牌撤销、
+对话记忆和多轮快照隔离。以下目标不能视为已实现或已通过验收。
 
 ## Technical Context
 
-**Language/Version**: Java 21（章程原则 I)
+**Language/Version**: Java 21，无预览特性；仓库已有 Vue/TypeScript 前端作为 API 调用方。
 
-**Primary Dependencies**: Spring Boot **3.5.3**（章程原则 II)、Spring Web、Spring Validation、
-LangChain4j（意图分类/语义分析/诊断推理/ChatMemory/**StreamingChatModel 流式输出**,
-章程原则 IV)、MyBatis-Flex（持久层，章程原则 III)、Spring Data Redis（会话态/锁/
-对话记忆存储/向量索引）、Spring Security（资源服务端鉴权，FR-015)、
-Spring RestClient（模拟器/售后 HTTP 客户端）、Spring MVC SseEmitter(SSE 推送,FR-021)、
-Spring Security Crypto(**BCrypt** 密码散列,FR-022;2026-08-29 新增)
+**Primary Dependencies**: Spring Boot 3.5.3（MVC、Validation、Security、Data Redis）、
+MyBatis-Flex 1.10.9、LangChain4j 1.0.1、community Redis 1.0.1-beta6、
+Spring RestClient、SseEmitter。沿用现有 pom，不新增 starter、消息队列或响应式框架。
+Redis 向量依赖虽存在，本期不启用向量检索。
 
-**Storage**: MySQL 8（用户、设备绑定、会话、消息、快照、知识条目，**长期保留**——2026-08-22
-撤销 90 天清理；设备绑定以 SN 数据库唯一约束保证全局唯一，并分离平台显示名称与
-模拟器原始名称）+ Redis（进行中会话状态、设备互斥锁、LLM 对话记忆窗口、向量索引、
-**登录令牌** `autosense:token:{token}`,TTL 7 天滚动——2026-08-29 新增；
-所有键带 TTL 与 `autosense:` 前缀）
+**Storage**: MySQL 8 为用户、设备、会话、消息、快照、日志、知识的权威来源；
+Redis 保存可重建上下文/20 条历史缓存、设备与会话租约、登录 token 及其成员索引。
+所有缓存键有 `autosense:` 命名空间及明确 TTL；无向量免 TTL 例外。
 
-**Testing**: JUnit 5 + Spring Boot Test + Testcontainers(MySQL/Redis)+
-**真实 deviceSimulator 实例**（集成测试经 docker-compose 启动；先在模拟器准备设备，
-再由平台按 SN 绑定；设备路径不再用 WireMock/Mockito 桩覆盖端到端行为）+
-WireMock(LLM/售后外部服务)+ Mockito（单元层）
+**Testing**: JUnit 5、Spring Boot Test、MockMvc、Mockito、现有 HTTP 协议替身；
+Testcontainers MySQL/Redis + 外部真实 deviceSimulator 用于 `-Pit`。
+真实 LangChain4j 客户端协议通过本地替身确定性验收，外部真实模型另做受控验证。
+已有 IT 固定 mock LLM，不能覆盖真实模型、记忆和全部租约边界。
 
-**Target Platform**: Linux 服务器（JVM 21),Docker 部署
+**Target Platform**: JVM 21 服务，支持 Windows 本地验证和 Linux 部署；
+Docker 用于开发/测试依赖。模拟器是外部项目，地址从配置注入。
 
-**Project Type**: web-service（纯 REST API，无前端）
+**Project Type**: 同仓库前后端分离项目中的单模块 Spring Boot web-service。
+本功能规划后端 API；`frontend/` 已存在，不新增页面或更改其构建方式。
 
-**Performance Goals**: 首诊断结论 < 2 分钟（SC-001)；单实例支撑 50 并发会话（家庭场景量级）；
-设备添加的外部查询受现有可配置连接/读取超时约束（默认 10 秒），超时不落库
+**Performance Goals**: SC-001 首诊断不超过 120 秒，含排队、模型和设备查询。
+目标单次模型超时 30 秒、模型自动重试 0，并受剩余总预算约束；这些配置与截止处理待实施。
+设备服务读取/连接超时沿用可配置的 10 秒上限。50 并发会话仅为原计划的容量验证假设，
+不是规格新增验收条件；SC-002 本期仅场景验证，不宣称达到 70% 统计成功率。
 
-**Constraints**: 所有外部服务配置（LLM、售后、deviceSimulator、地图工具预留）经
-`application.yaml` + `@ConfigurationProperties` 注入（章程原则 V)；模拟器为本项目外
-已有服务，不开发模拟器本体（2026-08-27 澄清）；修复/操作动作不可由 LLM 自由触发，
-只能经状态机调用适配器白名单；**所有改变设备状态的操作必须用户确认**(FR-008,2026-08-22
-扩大）,state 读取类探测免确认；同设备会话互斥（Redis 分布式锁）；意图分类不确定时
-必须追问澄清，不得触碰设备（FR-019);**会话接口以 SSE 流式推送**(POST 即流，
-等待/终态关流，断线不补发，FR-021);**注册/登录端点匿名放行，其余 `/api/**` 需
-Bearer 令牌；管理端点仅 admin 角色，否则 403**(FR-023/027,2026-08-29 新增);
-注册接口不得接受角色字段（防提权，FR-022)
+**Constraints**: Spring 构造器注入；所有外部连接/模型参数通过 yaml 与属性类注入；
+平台只能发现并绑定设备，不调用模拟器创建设备。当前应用模拟器默认 8080、
+Compose/IT 默认 8081，验证必须显式设置同一 `DEVICE_SERVICE_BASE_URL`。
+LLM 默认 real，确定性验证显式使用 mock；真实 token 优先，生产关闭 dev 身份入口。
+任何设备写入都需当前轮次的有效确认；状态/租约失效或模型输出异常不能触发新操作。
 
-设备添加的专用约束：本地校验 → 本地重复预检 → 无数据库事务的模拟器只读查询 →
-单条短事务写绑定；数据库唯一索引是并发最终裁决。客户端不得修改 SN 大小写或字符；
-`exists:false`、上游 400、上游 5xx/超时必须分别映射，任何未确认 `exists:true` 且稳定字段
-完整的响应都不得落库。添加时不得按诊断支持列表拒绝，也不得调用模拟器创建设备。
-
-**Scale/Scope**: 设备列表可绑定 deviceSimulator 可发现的任意类型/型号；本期仅 1 类设备
-具备诊断能力（智能灯泡 LITE:LA001 单色/LB001 彩光）。27 条 FR（含 2026-08-29 用户管理
-FR-022~FR-027);单模块单体服务；路由器/空调待经 FR-012 机制启用诊断
+**Scale/Scope**: US1/US3 为 P1，US2 为 P2；覆盖 FR-001–FR-027 和 SC-001–SC-009。
+可绑定上游可发现的任意类型/型号，本期诊断仅 LITE:LA001/LB001；
+路由器/空调、型号专用 RAG、真实地图查询、向量检索和新 UI 不在本轮实施范围。
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+*GATE: Phase 0 前识别既有偏离并确定纠正方向；Phase 1 后复核目标设计。
+“通过”表示设计满足约束，不表示代码或运行验收通过。*
 
-| 章程原则 | 门禁 | 结果 |
+| 章程约束 | Phase 0 检查及处理 | Phase 1 设计复核 |
 | --- | --- | --- |
-| I. Java 21 基线 | pom `java.version=21`，无预览特性 | ✅ 通过 |
-| II. Spring Boot 3.5.3 | pom parent 已为 3.5.3(T001 已降级) | ✅ 通过 |
-| III. 数据访问纪律 | MySQL + MyBatis-Flex;Redis 全部键带 TTL 与前缀（RAG 索引为例外，已注明）；登录令牌存 Redis 带 TTL(R19) | ✅ 通过 |
-| IV. AI 集成规范 | 全部模型调用经 LangChain4j（含 ChatMemory)，参数经配置注入 | ✅ 通过 |
-| V. 配置外部化 | LLM/售后/deviceSimulator/Redis/MySQL/故障规则注册表/AUTH_DEV_MODE 开关均走 yaml + `@ConfigurationProperties`，SN 查询复用可配置 device-service base-url/timeout，凭据用环境变量占位 | ✅ 通过 |
+| I. Java 21 | pom 已为 21，保留基线 | 通过，无预览 API |
+| II. Boot 3.5.3/依赖注入 | 固定当前依赖，AI 工厂由 Spring 管理 | 通过，不手工 new 受管业务 Bean |
+| III. MySQL/MyBatis-Flex/Redis TTL | 撤销旧文档向量免 TTL 例外；识别缓存及索引非原子问题 | 通过，MySQL 权威源，Redis 原子写入/TTL，未实现向量模式明确拒绝 |
+| IV. LangChain4j | 现有调用符合框架选型，但工厂和结构化模型待迁移 | 通过，AiServices 与流式模型仍经 LangChain4j |
+| V. 配置外部化 | 地址、凭据沿用外置；模型 360 秒旧默认不满足总预算 | 通过，模型超时/重试/请求截止及租约参数经属性绑定 |
+| 项目结构/分层 | UserController 直接使用 Mapper、5 个展示 View 在 DTO 包 | 通过，迁移清单明确，Controller → service/core → mapper |
+| DTO/VO/异常 | 保留 JSON 与模型职责，错误处理区分 HTTP/SSE | 通过，DTO/VO/AI 输出分开，common/exception 分工明确 |
+| 安全/权限 | 确认时锁未复核、token 索引可先过期 | 通过，原子所有权校验、一次确认、用户状态与索引成员校验 |
+| 测试/可验证性 | 旧任务和 09-04 报告不证明新设计已覆盖 | 通过，quickstart 明确现有命令与待补专项 |
+| 最小实现/工作流 | 不新增 UI、设备类型或向量基础设施 | 通过，本命令止于 Phase 1，不修改 spec/tasks/实现 |
 
-无需要论证的违规项。
-
-**2026-08-29 用户管理增量复核**：新增 Spring Security Crypto(BCrypt）为 Spring
-官方生态依赖，不违反原则 II；密码散列不入日志/不出接口（FR-022）属应用纪律，由
-契约测试与代码评审保证；令牌存 Redis 带 TTL 符合原则 III；初始管理员经 data.sql
-种子（散列预生成），无明文凭据入库，符合原则 V。
-
-**2026-09-04 设备添加增量复核（Phase 1 后）**：沿用既有 Spring RestClient 与
-MyBatis-Flex，无新增依赖；SN 唯一性由 MySQL 约束保证；设备服务地址和超时继续由
-`DeviceServiceProperties` 注入。外部查询不跨数据库事务，设计不引入分布式事务或
-额外缓存，五项章程门禁仍全部通过。
+所有已发现偏离均有目标修复方案；无需要额外批准的设计例外，无未解决技术澄清项。
+当前实现与目标的差距由下方迁移清单交给后续任务生成，不能在实施前关闭其验收门禁。
 
 ## Project Structure
 
@@ -113,14 +91,17 @@ MyBatis-Flex，无新增依赖；SN 唯一性由 MySQL 约束保证；设备服�
 
 ```text
 specs/001-iot-auto-diagnosis/
-├── plan.md              # 本文件
-├── research.md          # Phase 0 输出(2026-09-04 刷新:按 SN 发现/唯一性/错误映射/测试)
-├── data-model.md        # Phase 1 输出(2026-09-04 刷新:稳定设备元数据、移除运行态持久化)
-├── quickstart.md        # Phase 1 输出(2026-09-04 刷新:先模拟器建机、再按 SN 绑定)
-├── contracts/           # Phase 1 输出(2026-09-04 刷新设备添加契约)
-│   ├── diagnosis-api.md
-│   └── user-api.md      # 用户管理接口(2026-08-29 新增,US3)
-└── tasks.md             # /speckit-tasks 输出(本命令不生成)
+├── spec.md                    # 现行需求，本命令保留
+├── plan.md                    # 本次实施设计
+├── research.md                # Phase 0：R1–R31 决策及依据
+├── data-model.md              # Phase 1：实体、模型归属、状态与缓存
+├── contracts/
+│   ├── diagnosis-api.md       # 设备/会话 JSON 与 SSE 契约
+│   └── user-api.md            # 用户、令牌与管理接口
+├── quickstart.md              # 可执行验证指南与验收边界
+├── tasks.md                   # 既有任务；需后续按本计划重新生成
+├── checklists/                # 既有规格检查清单
+└── validation/                # 既有历史执行证据，本次不覆盖
 ```
 
 ### Source Code (repository root)
@@ -128,53 +109,128 @@ specs/001-iot-auto-diagnosis/
 ```text
 src/main/java/com/chh/autosense/
 ├── AutoSenseApplication.java
-├── config/                  # @ConfigurationProperties(LLM/Redis/售后/模拟器/设备类型注册表)
-├── api/                     # REST Controller + DTO + 全局异常处理
-│   └── dto/                 #   含会话列表、按 SN 添加设备端点(FR-018/FR-020)
-├── security/                # 登录态校验(真实令牌优先+dev 开关,R21)、角色/归属鉴权(FR-015/027)
-├── user/                    # 用户账号体系(2026-08-29 新增,US3):注册/登录/me/注销/管理
-├── domain/                  # 实体、枚举(会话状态机含终态→ANALYZING 回路、意图路由枚举)
-│   ├── model/
-│   └── enums/
-├── repository/              # MyBatis-Flex Mapper + Service
-├── session/                 # 会话编排:状态机、Redis 会话态、互斥锁、对话记忆窗口(FR-018)
-│   └── statemachine/
-├── routing/                 # 意图分类与四路路由(FR-019):常识直答/诊断修复/网点查询
-├── analysis/                # LangChain4j 语义分析(设备类型/问题表现提取,FR-002)
-├── device/                  # DeviceAdapter SPI + 智能灯泡适配器 + 注册表(FR-012)
-│   ├── spi/
-│   ├── client/              # DeviceServiceClient + DeviceSimulatorClient(含按 SN 查询)
-│   ├── adapter/             # SmartBulbAdapter(LA001/LB001)
-│   └── rule/                # 状态→故障判定规则引擎(yml 配置化,2026-08-27)
-├── knowledge/               # RAG:修复知识检索(FR-007);型号 RAG 后续接入(FR-019 路由 3)
-├── repair/                  # 修复执行器:白名单动作、全操作确认门、失败即停(FR-008/017)
-├── aftersales/              # 售后网点查询(本期固定 mock 数据,地图工具预留)
-└── retention/               # (已撤销 90 天清理;保留包位或移除,FR-013 2026-08-22 修订)
+├── controller/                # HTTP/API 入口
+├── service/
+│   ├── user/                  # 用户/令牌服务
+│   └── knowledge/             # MySQL 知识检索
+├── core/
+│   ├── aftersales/            # 网点客户端及引导
+│   ├── analysis/              # 分析/诊断能力接口
+│   ├── device/
+│   │   ├── adapter/           # 设备适配器实现
+│   │   ├── client/            # 外部模拟器协议
+│   │   ├── rule/              # 配置化规则
+│   │   └── spi/               # 设备扩展契约
+│   ├── repair/                # 修复动作执行
+│   ├── routing/               # 意图路由与直接回答
+│   ├── security/              # 认证/授权及安全模块配置
+│   └── session/
+│       ├── memory/            # 用户历史快照与 Redis 热缓存
+│       └── statemachine/      # 确定性迁移
+├── mapper/                    # MyBatis-Flex 数据访问
+├── domain/
+│   ├── dto/                   # 请求/传输响应
+│   ├── entity/                # 持久化实体
+│   ├── enums/                 # 业务枚举
+│   ├── message/               # SSE 事件与流封装
+│   └── vo/                    # 5 个展示模型待迁入
+├── ai/
+│   ├── factory/               # AI Service 创建工厂待实现
+│   ├── model/                 # 结构化 AI 输出待迁入
+│   │   └── enums/             # AI 分类枚举待迁入
+│   └── tools/                 # 已有 BaseTool，不新增自由设备写工具
+├── common/                    # 公共错误响应/全局处理
+├── exception/                 # 自定义异常与错误码
+├── config/                    # 配置属性与通用装配
+├── constant/                  # 全局角色/权限等常量
+└── utils/                     # 通用工具，按需使用
 
-src/main/resources/
-└── application.yaml         # 全部外部服务配置入口(含模拟器 base-url、故障规则注册表)
-
+src/main/resources/            # application.yaml、schema.sql、data.sql
 src/test/java/com/chh/autosense/
-├── contract/                # API 契约测试
-├── integration/             # 连真实 deviceSimulator 的端到端场景(docker-compose)
-└── unit/                    # 状态机/规则引擎/适配器/分析器单测
+├── contract/
+├── device/                    # 设备服务/HTTP 客户端单测
+├── integration/               # 真实模拟器端到端测试
+└── unit/
 
-docker-compose.yaml          # MySQL 8 + Redis(含 RediSearch)+ deviceSimulator
+frontend/                      # 既有 Vue 客户端
+scripts/migration/             # 已有 SN 迁移脚本
+documents/                     # 模拟器协议与项目说明
+docker-compose.yaml            # MySQL、Redis、外部模拟器运行配置
 ```
 
-**Structure Decision**: 单模块 Spring Boot 服务。按业务子域分包；新增 `routing/` 承载
-意图路由（FR-019),`device/rule/` 承载配置化故障判定；设备类型扩展点集中在
-`device/spi` + yaml 注册表，满足 FR-012/SC-006。模拟器客户端经 DeviceServiceClient
-接口隔离，未来接入真实设备服务仅需新增实现 Bean。
+**Structure Decision**: 保留现有单模块 Spring Boot 工程，按层与业务模块共同组织。
+Controller 可调用 service 或 core 的业务入口；Mapper 专用于数据访问。
+AI 工厂组装模型服务，核心编排验证其结果并决定动作，工厂不承担业务状态机。
+只将符合职责的类迁入对应目录，不为填满目录新建空壳类。
 
-设备添加改造保持上述目录不变：`DeviceController`/请求与响应 DTO 定义公开契约，
-`DeviceRegistryService` 编排重复检查、远程发现和绑定写入，`DeviceSimulatorClient`
-只负责上游协议与异常分类，`DeviceMapper`/MySQL 唯一约束负责持久化并发裁决。
+## Phase 0: Research
+
+研究结论见 [research.md](./research.md)。主要决策：
+
+- R3/R27/R28：按新章程归位 AI 模型、工厂与 VO，保留 API 字段和已用依赖。
+- R4：MySQL 检索为本期完整可交付路径，向量开关不得静默伪成功。
+- R6/R19：原子租约与索引成员校验解决确认和身份失效，不新增认证表字段。
+- R15/R17/R29：统一历史写入，以消息/轮次为界隔离 AI 上下文与诊断结论。
+- R18/R30：SSE 流内错误与 HTTP 错误分开，补足预算与实际环境验证边界。
+
+未知项已通过本地源码、既有协议和固定版本官方资料解决。
+
+## Phase 1: Design & Contracts
+
+### 模型与接口
+
+[data-model.md](./data-model.md)定义现有表、非持久化模型、Redis 类型/TTL、状态迁移和数据一致性。
+[诊断契约](./contracts/diagnosis-api.md)和[用户契约](./contracts/user-api.md)维持既有端点：
+
+- 请求 DTO 和传输响应仍在 domain/dto，展示 VO 调整 Java 包，JSON 字段不变。
+- 设备响应保留 online:boolean；false 表示未确认在线，不等同确定离线，不保存上游运行态。
+- 会话查询响应是 sessionId/status/reply/awaitingInput/conclusion，不新增旧文档虚构的 device 字段。
+- 会话 POST 已建立 SSE 后业务失败通过 error 事件表达；认证/请求校验及 JSON 查询错误按 HTTP 返回。
+- 终态续聊按规格直接 ANALYZING 并先重分类；常识和不确定意图仍不调用设备。
+
+### 迁移与待实施清单
+
+以下是设计责任范围，任务编号及勾选状态由后续 `speckit-tasks` 生成。
+
+| 范围 | 当前差距 | 目标及验证 |
+| --- | --- | --- |
+| 目录/分层 | UserController.me 直接 Mapper；DeviceController 编排在线/支持性 | 用户查询归 UserService；设备投影归 core/device 业务服务，契约保持 |
+| AI 接入 | 工厂/模型目录未接入，配置类集中低层调用/解析 | 工厂创建分类、分析、诊断代理；AI 输出严格校验，流式说明与内部结构化调用隔离 |
+| AI 类型 | ProblemAnalysis/DiagnosisConclusion 位于 core/analysis，Intent 位于 domain/enums | 前两者移 ai/model，Intent 移 ai/model/enums；数据库/JSON 枚举值保持 |
+| VO 类型 | 5 个展示 record 位于 domain/dto | UserView/AdminUserPageView/DeviceView/ChatMessageView/SessionListItemView 移 domain/vo，引用同步 |
+| 全局常量 | user/admin 等跨模块字面量分散 | 抽取至 constant，保持现有角色值，不引入新权限等级协议 |
+| 状态/审计 | 部分失败边缺失，异常直接 setStatus | 补状态表，状态与审计短事务一致提交；续聊入口、失败复检和超时均有确定边 |
+| 设备确认 | 旧锁可过期、续租/释放有竞态、双确认可重入 | owner 原子校验、每会话串行、状态条件更新一次消费；过期重探测并重新确认 |
+| token 撤销 | 单 token 续期而索引不续期 | 原子 token/Set 生命周期；用户启用检查；登录/禁用/启用短行锁串行，旧 token 不复活 |
+| 对话记忆 | 热缓存陈旧、当前输入可能重复、内部提示可污染 | 编排唯一写入；之前 20 条快照+一次当前输入，Redis 原子 JSON 缓存与冷恢复 |
+| 多轮结论 | 查询未按 round 限定，历史仅摘要可能丢失步骤/网点详情 | 完整用户可见结论先存 ASSISTANT 消息，再清当前投影；PRE/POST 按轮确定排序 |
+| 知识检索 | 向量开关 true 实际仍回退 | 明确 MySQL 路径、空查询/未命中/knowledgeRef 优先，true 启动报配置错误 |
+| 时限/错误 | 默认模型超时 360 秒且重试；流式晚回调未隔离 | 属性化 30 秒/0 重试/120 秒总截止，逾期不能继续推进设备动作 |
+| 旧数据库 | 已有 SN 脚本仅适用于已知旧结构 | 验证既有脚本与元数据回填前提；未知旧数据先报告，不自动覆盖 |
+
+数据库表名和公开接口不因目录迁移而变化。SN 脚本复核只针对已有迁移路径，
+本命令不运行迁移，不凭空新增 DDL。缓存 List → String(JSON) 需要受控失效或版本化，
+保留 MySQL 历史；待确认上下文格式不兼容时重新探测并要求确认。
+会话消息租约覆盖异步流式回调的完整生命周期，结束或明确取消后才释放；
+人工步骤和售后联系方式随完整答复进入长期历史，不能在新轮清理时丢失。
+
+### 验证与交付边界
+
+验证步骤见 [quickstart.md](./quickstart.md)，覆盖账号、SN、诊断确认、不可达、
+人工/售后、SSE 与跨用户隔离；待补专项覆盖真实模型协议、20 条历史、
+过期/并发确认、索引丢失后的禁用、按轮快照及总预算。
+后续实施复用现有测试框架，验证外部行为与不发生未授权写入。
+
+本次只检查文档和设计一致性，不运行 Maven、Docker、模型调用或端到端场景。
+现有 `tasks.md` 的完成勾选及 `validation/` 的历史数据不代表上述迁移已完成。
+Phase 1 复核结果：目标设计通过章程门禁，实施和运行验证仍待后续执行。
 
 ## Complexity Tracking
 
-> 无章程违规需要论证，本表留空。
+目标设计没有需要豁免的章程违规。设备/会话两种租约分别保护设备操作和对话消息，
+用户短事务行锁用于保证既有禁用语义，均对应现行需求而非新基础设施。
+现存偏离仅按上表迁移，不作为长期例外保留。
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| — | — | — |
+| --- | --- | --- |
+| 无新增设计例外 | 不适用 | 不适用 |

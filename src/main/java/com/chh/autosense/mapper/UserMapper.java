@@ -41,4 +41,12 @@ public interface UserMapper extends BaseMapper<User> {
     /** 按 id 查找(含已禁用),供管理端禁用/启用前定位目标。 */
     @Select("SELECT * FROM user WHERE id = #{id} LIMIT 1")
     User selectByIdIncludingDeleted(@Param("id") long id);
+
+    /** 登录行锁(含已禁用):同账号登录/禁用串行,锁内复核状态。须在事务内调用。 */
+    @Select("SELECT * FROM user WHERE userAccount = #{account} LIMIT 1 FOR UPDATE")
+    User selectByAccountForUpdate(@Param("account") String account);
+
+    /** 状态变更行锁(含已禁用):同用户禁用/启用串行,锁内复核状态。须在事务内调用。 */
+    @Select("SELECT * FROM user WHERE id = #{id} LIMIT 1 FOR UPDATE")
+    User selectByIdForUpdate(@Param("id") long id);
 }

@@ -1,5 +1,7 @@
 # Tasks: 通过 SN 绑定已有模拟器设备
 
+> **2026-09-07 规格拆分说明**：本文件保留已完成的 SN 绑定增量任务及原勾选状态，作为复用与回归依据；它不是五个新边界 feature 的实施清单。后续按[feature 总览](../README.md)和各自 spec 生成增量 plan/tasks，不复制历史完成状态。下文的故事编号与路径属于原任务批次。
+
 **Input**: Design documents from `/specs/001-iot-auto-diagnosis/`  
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/diagnosis-api.md`, `quickstart.md`
 

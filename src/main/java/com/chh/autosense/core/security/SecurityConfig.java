@@ -1,6 +1,10 @@
 package com.chh.autosense.core.security;
 
 import com.chh.autosense.config.CorsProperties;
+import com.chh.autosense.common.RequestLogFilter;
+import com.chh.autosense.constant.UserRoleConstants;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,6 +28,7 @@ import java.util.List;
  * 仅 admin 角色(否则 403);其余 /api/** 需认证,无状态会话。
  */
 @Configuration
+@Slf4j
 @EnableWebSecurity
 @EnableConfigurationProperties(CorsProperties.class)
 public class SecurityConfig {
@@ -50,18 +55,27 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/users/register", "/api/v1/users/login").permitAll()
                         // 管理端点仅 admin(FR-027)
-                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/admin/**")
+                        .hasRole(UserRoleConstants.ADMIN.toUpperCase(java.util.Locale.ROOT))
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new RequestLogFilter(), BearerTokenAuthFilter.class)
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((req, res, e) -> writeJson(res,
+                        .authenticationEntryPoint((req, res, e) -> { log.warn("Authentication rejected: errorCode=UNAUTHORIZED"); writeJson(res,
                                 HttpServletResponse.SC_UNAUTHORIZED,
-                                "{\"code\":\"UNAUTHORIZED\",\"message\":\"未登录或令牌无效\"}"))
-                        .accessDeniedHandler((req, res, e) -> writeJson(res,
+                                "{\"code\":\"UNAUTHORIZED\",\"message\":\"未登录或令牌无效\"}"); })
+                        .accessDeniedHandler((req, res, e) -> { log.warn("Access denied: errorCode=FORBIDDEN"); writeJson(res,
                                 HttpServletResponse.SC_FORBIDDEN,
-                                "{\"code\":\"FORBIDDEN\",\"message\":\"无权限访问该资源\"}")))
+                                "{\"code\":\"FORBIDDEN\",\"message\":\"无权限访问该资源\"}"); }))
                 .build();
+    }
+
+    @Bean
+    public FilterRegistrationBean<BearerTokenAuthFilter> authFilterRegistration(BearerTokenAuthFilter filter) {
+        FilterRegistrationBean<BearerTokenAuthFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     /**

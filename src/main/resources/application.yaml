@@ -13,7 +13,7 @@ spring:
       password: ${REDIS_PASSWORD:}
   sql:
     init:
-      mode: always
+      mode: ${SQL_INIT_MODE:never}
       schema-locations: classpath:schema.sql
       data-locations: classpath:data.sql
       # schema/data 初始化失败必须使启动失败，禁止静默跳过迁移或约束错误。
@@ -23,6 +23,19 @@ mybatis-flex:
   mapper-locations: classpath*:mapper/*.xml
   configuration:
     map-underscore-to-camel-case: true
+
+logging:
+  config: ${LOGGING_CONFIG:classpath:log4j2-spring.xml}
+  level:
+    root: ${LOGGING_LEVEL_ROOT:INFO}
+    com.chh.autosense: ${LOGGING_LEVEL_COM_CHH_AUTOSENSE:INFO}
+    dev.langchain4j: 'OFF'
+    dev.ai4j: 'OFF'
+    org.apache.hc.client5.http.wire: 'OFF'
+    org.apache.http.wire: 'OFF'
+    reactor.netty.http.client: 'OFF'
+  pattern:
+    console: ${LOGGING_PATTERN_CONSOLE:%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t requestId=%X{requestId} userId=%X{userId} sessionId=%X{sessionId} messageId=%X{messageId} round=%X{round} deviceId=%X{deviceId} %m%n%ex}
 
 server:
   port: 8180
@@ -58,9 +71,15 @@ autosense:
     api-key: ${LLM_API_KEY:}
     model-name: ${LLM_MODEL_NAME:qwen3.8-max}
     temperature: ${LLM_TEMPERATURE:0.2}
-    timeout-seconds: ${LLM_TIMEOUT_SECONDS:360}
+    timeout-seconds: ${LLM_TIMEOUT_SECONDS:30}
+    max-retries: ${LLM_MAX_RETRIES:0}
     # 仅支持 mock/real；当前默认使用真实 LangChain4j 模型，本地桩请显式设置 LLM_MODE=mock
     mode: ${LLM_MODE:real}
+  assistant:
+    processing-timeout-seconds: ${ASSISTANT_PROCESSING_TIMEOUT_SECONDS:120}
+    session-lease-seconds: ${ASSISTANT_SESSION_LEASE_SECONDS:30}
+    session-renew-seconds: ${ASSISTANT_SESSION_RENEW_SECONDS:10}
+    context-ttl-seconds: ${ASSISTANT_CONTEXT_TTL_SECONDS:1800}
   device-service:
     # deviceSimulator(外部已有服务,接口契约见仓库根《后端接口说明.md》;2026-08-27 起为唯一设备交互实现)
     base-url: ${DEVICE_SERVICE_BASE_URL:http://localhost:8080}
@@ -78,12 +97,9 @@ autosense:
   auth:
     issuer-uri: ${AUTH_ISSUER_URI:}
     # dev 模式接受 "user-{id}" 形式令牌;真实令牌优先解析(R21)。⚠️ 生产必须 false
-    dev-mode: ${AUTH_DEV_MODE:true}
+    dev-mode: ${AUTH_DEV_MODE:false}
     # 登录令牌滚动 TTL(天),存 Redis autosense:token:{token}(R19)
     token-ttl-days: ${AUTH_TOKEN_TTL_DAYS:7}
-  chat-memory:
-    # LLM 端对话记忆窗口(FR-018):最近 N 条消息;超出部分仍长期留存于 MySQL 可查
-    window: ${CHAT_MEMORY_WINDOW:20}
   rag:
     # Redis 向量索引(research R4;索引型数据,显式重建,TTL 例外已论证)
     embeddings-enabled: ${RAG_EMBEDDINGS_ENABLED:false}

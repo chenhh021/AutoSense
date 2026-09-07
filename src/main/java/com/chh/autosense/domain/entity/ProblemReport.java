@@ -3,14 +3,18 @@ package com.chh.autosense.domain.entity;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
 import com.mybatisflex.annotation.Table;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 /**
  * 问题报告(data-model.md §2);clarifications 为 JSON 数组字符串。
  */
-@Data
+@Getter
+@Setter
+@NoArgsConstructor
 @Table("problem_report")
 public class ProblemReport {
     @Id(keyType = KeyType.Auto)

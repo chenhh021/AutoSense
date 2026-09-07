@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 越权访问他人资源(SC-008)，以及 SN 全局唯一不泄露原绑定用户。
  * data.sql 种子 admin/admin123 用于管理员流程。
  */
+@org.junit.jupiter.api.Tag("device-simulator")
 class UserManagementIT extends AbstractIntegrationIT {
 
     @Autowired

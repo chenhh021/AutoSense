@@ -1,5 +1,6 @@
 package com.chh.autosense.contract;
 
+import com.chh.autosense.config.AssistantProperties;
 import com.chh.autosense.exception.ApiException;
 import com.chh.autosense.exception.ErrorCode;
 import com.chh.autosense.controller.SessionController;
@@ -21,6 +22,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -46,6 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(SessionController.class)
 @Import({SecurityConfig.class, BearerTokenAuthFilter.class})
+@org.springframework.boot.context.properties.EnableConfigurationProperties(AssistantProperties.class)
 class SessionApiContractTest {
 
     @Autowired
@@ -244,5 +247,115 @@ class SessionApiContractTest {
                 .andExpect(status().isOk())
                 .andReturn().getResponse()
                 .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    // ---------- T041:补查兼容 / DISPATCHING / FAILED_REQUEST / 会话忙 ----------
+
+    @Test
+    void GET消息列表按时间正序返回完整角色与内容() throws Exception {
+        com.chh.autosense.domain.entity.ChatMessage first =
+                new com.chh.autosense.domain.entity.ChatMessage();
+        first.setRole("user");
+        first.setContent("灯不亮了");
+        first.setCreatedAt(java.time.LocalDateTime.of(2026, 9, 1, 10, 0));
+        com.chh.autosense.domain.entity.ChatMessage second =
+                new com.chh.autosense.domain.entity.ChatMessage();
+        second.setRole("assistant");
+        second.setContent("请问是哪个房间的灯?");
+        second.setCreatedAt(java.time.LocalDateTime.of(2026, 9, 1, 10, 1));
+        when(orchestrator.listMessages(any(), eq(7L))).thenReturn(List.of(first, second));
+
+        mockMvc.perform(get("/api/v1/sessions/7/messages")
+                        .header("Authorization", "Bearer user-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].role").value("user"))
+                .andExpect(jsonPath("$[0].content").value("灯不亮了"))
+                .andExpect(jsonPath("$[1].role").value("assistant"))
+                .andExpect(jsonPath("$[1].content").value("请问是哪个房间的灯?"))
+                .andExpect(jsonPath("$[0].createdAt").exists());
+    }
+
+    @Test
+    void GET会话列表返回状态与摘要投影() throws Exception {
+        when(orchestrator.listSessions(any())).thenReturn(List.of(
+                new com.chh.autosense.domain.vo.SessionListItemView(
+                        3L, "COMPLETED_ANSWERED", "灯泡寿命多久?",
+                        java.time.LocalDateTime.of(2026, 9, 1, 10, 0),
+                        java.time.LocalDateTime.of(2026, 9, 1, 10, 1))));
+
+        mockMvc.perform(get("/api/v1/sessions")
+                        .header("Authorization", "Bearer user-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessions[0].sessionId").value(3))
+                .andExpect(jsonPath("$.sessions[0].status").value("COMPLETED_ANSWERED"))
+                .andExpect(jsonPath("$.sessions[0].preview").value("灯泡寿命多久?"));
+    }
+
+    @Test
+    void 会话忙通过error事件传达_SESSION_BUSY() throws Exception {
+        doAnswer(inv -> {
+            SseEventStream stream = inv.getArgument(4);
+            stream.error(ErrorCode.SESSION_BUSY.name(), "当前会话正在处理上一条消息,请稍后再试。", 1L);
+            return null;
+        }).when(orchestrator).postMessage(any(), eq(1L), anyString(), any(), any());
+
+        String body = sseBody(mockMvc.perform(post("/api/v1/sessions/1/messages")
+                        .header("Authorization", "Bearer user-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"再问一句\"}"))
+                .andReturn());
+
+        assertThat(body).contains("event:error");
+        assertThat(body).contains("SESSION_BUSY");
+    }
+
+    @Test
+    void 处理超时经FAILED_REQUEST状态与error事件传达() throws Exception {
+        doAnswer(inv -> {
+            SseEventStream stream = inv.getArgument(2);
+            stream.send(SseEvent.status(1L, "DISPATCHING"));
+            stream.send(SseEvent.status(1L, "FAILED_REQUEST"));
+            stream.error(ErrorCode.REQUEST_TIMEOUT.name(), "处理超时,请重新提问。", 1L);
+            return null;
+        }).when(orchestrator).createSession(any(), anyString(), any());
+
+        String body = sseBody(mockMvc.perform(post("/api/v1/sessions")
+                        .header("Authorization", "Bearer user-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"problem\":\"灯不亮了\"}"))
+                .andReturn());
+
+        assertThat(body).contains("DISPATCHING");
+        assertThat(body).contains("FAILED_REQUEST");
+        assertThat(body).contains("REQUEST_TIMEOUT");
+        // error 事件关闭流:其后不再出现任何事件
+        assertThat(body.indexOf("event:error")).isGreaterThan(body.lastIndexOf("event:token"));
+    }
+
+    @Test
+    void 上下文失效通过error事件传达_CONTEXT_EXPIRED() throws Exception {
+        doAnswer(inv -> {
+            SseEventStream stream = inv.getArgument(4);
+            stream.error(ErrorCode.CONTEXT_EXPIRED.name(), "原处理上下文已失效,请重新提问。", 1L);
+            return null;
+        }).when(orchestrator).postMessage(any(), eq(1L), anyString(), any(), any());
+
+        String body = sseBody(mockMvc.perform(post("/api/v1/sessions/1/messages")
+                        .header("Authorization", "Bearer user-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"确认\"}"))
+                .andReturn());
+
+        assertThat(body).contains("event:error");
+        assertThat(body).contains("CONTEXT_EXPIRED");
+    }
+
+    @Test
+    void 补查接口未带令牌返回401() throws Exception {
+        mockMvc.perform(get("/api/v1/sessions/7/messages"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        mockMvc.perform(get("/api/v1/sessions"))
+                .andExpect(status().isUnauthorized());
     }
 }

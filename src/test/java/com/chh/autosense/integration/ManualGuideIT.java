@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * MANUAL_ONLY 场景经模拟器预置 color_temperature=6500 命中"色温异常偏高"规则;
  * 独立网点查询路由(路由 4)不触碰任何设备。
  */
+@org.junit.jupiter.api.Tag("device-simulator")
 class ManualGuideIT extends AbstractIntegrationIT {
 
     private static final Pattern SESSION_ID = Pattern.compile("\"sessionId\":(\\d+)");

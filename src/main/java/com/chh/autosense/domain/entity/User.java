@@ -4,7 +4,9 @@ import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
 import com.mybatisflex.annotation.Table;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
@@ -13,7 +15,9 @@ import java.time.LocalDateTime;
  * 无法走默认驼峰转下划线映射,每字段显式 @Column。
  * isDelete 为逻辑删除标记:禁用即逻辑删除,MyBatis-Flex 自动过滤/更新。
  */
-@Data
+@Getter
+@Setter
+@NoArgsConstructor
 @Table("user")
 public class User {
 

@@ -15,14 +15,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SseEventStream {
 
     private static final Logger log = LoggerFactory.getLogger(SseEventStream.class);
-    /** 修复执行最长 10 分钟(R18 流内推进) */
+    /** 兜底超时常量；公共入口使用与处理截止协调的配置值 */
     public static final long TIMEOUT_MS = 10 * 60 * 1000L;
 
     private final SseEmitter emitter;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     public SseEventStream() {
-        this.emitter = new SseEmitter(TIMEOUT_MS);
+        this(TIMEOUT_MS);
+    }
+
+    public SseEventStream(long timeoutMs) {
+        this.emitter = new SseEmitter(timeoutMs);
     }
 
     public SseEmitter emitter() {
@@ -41,7 +45,7 @@ public class SseEventStream {
             emitter.send(SseEmitter.event().name(event.event()).data(event.data()));
         } catch (IOException | IllegalStateException e) {
             // 客户端断线:不补发,仅记录(FR-021)
-            log.debug("SSE 发送失败(客户端可能已断开): {}", e.getMessage());
+            log.debug("SSE connection closed: reasonCode=WRITE_FAILED");
             closed.set(true);
         }
     }

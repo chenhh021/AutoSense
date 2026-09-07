@@ -8,6 +8,7 @@ import com.chh.autosense.core.device.client.DeviceServiceClient.DeviceLookupResu
 import com.chh.autosense.core.device.client.DeviceServiceClient.DeviceServiceUnavailableException;
 import com.chh.autosense.domain.entity.Device;
 import com.chh.autosense.mapper.DeviceMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -16,9 +17,11 @@ import java.util.regex.Pattern;
 
 /**
  * 设备绑定与查询(FR-020/R24~R26)。远程只读查询不处于数据库事务中；最终由
- * uk_device_sn 作为并发绑定的唯一裁决。
+ * uk_device_sn 作为并发绑定的唯一裁决。失败零新增,错误不泄露归属;
+ * 日志仅英文 operation/result,不含 SN/名称。
  */
 @Service
+@Slf4j
 public class DeviceRegistryService {
 
     private static final Pattern SN_PATTERN = Pattern.compile("^[A-Z0-9]{4}[0-9]{9}$");
@@ -74,8 +77,10 @@ public class DeviceRegistryService {
         try {
             deviceMapper.insert(device);
         } catch (DuplicateKeyException e) {
+            log.info("Device operation completed: operation=bind, result=ALREADY_BOUND");
             throw new ApiException(ErrorCode.DEVICE_ALREADY_BOUND, ALREADY_BOUND_MESSAGE);
         }
+        log.info("Device operation completed: operation=bind, result=BOUND");
         return device;
     }
 

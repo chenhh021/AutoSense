@@ -1,16 +1,18 @@
 package com.chh.autosense.core.routing;
 
-import com.chh.autosense.domain.enums.Intent;
+import com.chh.autosense.ai.model.RoutingDecision;
+import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 
 /**
- * 意图分类器(FR-019/R13):将用户输入分类为四路路由意图。
- * 分类结果只决定"是否进入设备流程";设备写操作仍由状态机+确认门管控。
+ * 意图分类：输出 AI 候选 RoutingDecision（routing-contract §2）。
+ * 分类结果只是候选数据，不构成身份、设备归属或任何授权。
+ * 实现：MockIntentClassifier（显式 mock 模式）/ LangChain4j 真实代理适配（real 模式）。
  */
 public interface IntentClassifier {
 
     /**
-     * @param text     用户输入
-     * @param sessionId 会话 id(对话记忆 memoryId;终态续聊时可见历史)
+     * @param text    本次被接纳的用户输入原文
+     * @param history 同轮只读历史快照（当前 messageId 之前最近 20 条 USER/ASSISTANT）
      */
-    Intent classify(String text, long sessionId);
+    RoutingDecision classify(String text, ConversationHistorySnapshot history);
 }

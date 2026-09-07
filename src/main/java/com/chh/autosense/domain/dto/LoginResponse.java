@@ -1,6 +1,7 @@
 package com.chh.autosense.domain.dto;
 
 import com.chh.autosense.domain.entity.User;
+import com.chh.autosense.domain.vo.UserView;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**

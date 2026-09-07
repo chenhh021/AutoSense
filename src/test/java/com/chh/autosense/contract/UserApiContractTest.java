@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -167,6 +168,46 @@ class UserApiContractTest {
                 .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
     }
 
+    // ---------- 密码 UTF-8 字节边界(T030,BCrypt 72 字节上限) ----------
+
+    @Test
+    void 注册密码UTF8编码72字节_201() throws Exception {
+        String exact72 = "中".repeat(23) + "ab1"; // 69+3=72 字节,字符数 26 ≤64
+        assertThat(exact72.getBytes(java.nio.charset.StandardCharsets.UTF_8)).hasSize(72);
+        when(userService.register(eq("zhangsan72"), eq(exact72), eq(exact72)))
+                .thenReturn(sampleUser(13L, "user"));
+
+        mockMvc.perform(post("/api/v1/users/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userAccount\":\"zhangsan72\",\"userPassword\":\"" + exact72
+                                + "\",\"confirmPassword\":\"" + exact72 + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.userPassword").doesNotExist());
+    }
+
+    @Test
+    void 注册密码UTF8编码73字节_400且错误体不含密码() throws Exception {
+        String over72 = "中".repeat(23) + "ab1x"; // 73 字节
+        assertThat(over72.getBytes(java.nio.charset.StandardCharsets.UTF_8)).hasSize(73);
+        when(userService.register(anyString(), anyString(), anyString()))
+                .thenThrow(new ApiException(ErrorCode.BAD_REQUEST,
+                        "密码的 UTF-8 编码长度不能超过 72 字节"));
+
+        try (com.chh.autosense.support.LogCaptureSupport logs =
+                     new com.chh.autosense.support.LogCaptureSupport()) {
+            String body = mockMvc.perform(post("/api/v1/users/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"userAccount\":\"zhangsan73\",\"userPassword\":\"" + over72
+                                    + "\",\"confirmPassword\":\"" + over72 + "\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+                    .andReturn().getResponse().getContentAsString();
+
+            assertThat(body).doesNotContain(over72);
+            assertThat(logs.rendered()).doesNotContain(over72);
+        }
+    }
+
     @Test
     void 注册账号重复_409() throws Exception {
         when(userService.register(anyString(), anyString(), anyString()))
@@ -223,7 +264,7 @@ class UserApiContractTest {
 
     @Test
     void 获取当前用户_200脱敏() throws Exception {
-        when(userMapper.selectOneById(12L)).thenReturn(sampleUser(12L, "user"));
+        when(userService.currentUser(12L)).thenReturn(sampleUser(12L, "user"));
 
         mockMvc.perform(get("/api/v1/users/me")
                         .header("Authorization", "Bearer user-token"))

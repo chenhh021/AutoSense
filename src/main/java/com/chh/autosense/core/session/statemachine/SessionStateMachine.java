@@ -26,7 +26,11 @@ public class SessionStateMachine {
         Map<SessionStatus, Set<SessionStatus>> m = new HashMap<>();
         m.put(CREATED, EnumSet.of(ROUTING));
         m.put(ROUTING, EnumSet.of(ANSWERING, AFTERSALES_LOOKUP, AWAITING_LOCATION,
-                ANALYZING, CLARIFYING));
+                ANALYZING, CLARIFYING, DISPATCHING));
+        m.put(DISPATCHING, EnumSet.of(ANSWERING, ANALYZING, DIAGNOSING, LOCATING,
+                AFTERSALES_LOOKUP, CLARIFYING, DEVICE_CONFIRMING, CONFIRMING_REPAIR,
+                AWAITING_LOCATION, COMPLETED_ANSWERED, COMPLETED_AFTERSALES,
+                GUIDED_MANUAL, GUIDED_AFTERSALES, COMPLETED_UNFIXED));
         m.put(ANSWERING, EnumSet.of(COMPLETED_ANSWERED));
         m.put(AFTERSALES_LOOKUP, EnumSet.of(COMPLETED_AFTERSALES));
         m.put(ANALYZING, EnumSet.of(CLARIFYING, REJECTED_UNSUPPORTED, LOCATING));
@@ -42,10 +46,17 @@ public class SessionStateMachine {
         m.put(CONFIRMING_REPAIR, EnumSet.of(REPAIRING, COMPLETED_UNFIXED));
         m.put(REPAIRING, EnumSet.of(VERIFYING));
         m.put(VERIFYING, EnumSet.of(COMPLETED_FIXED, GUIDED_MANUAL, GUIDED_AFTERSALES));
+        // 等待态可因用户/能力取消进入确定性的未完成终态，再经新消息开启新轮
+        m.get(CLARIFYING).add(COMPLETED_UNFIXED);
+        m.get(DEVICE_CONFIRMING).add(COMPLETED_UNFIXED);
+        m.get(AWAITING_LOCATION).add(COMPLETED_UNFIXED);
         // R17:任意终态可经用户新消息回到 ROUTING 开启新一轮
         for (SessionStatus s : values()) {
             if (s.isTerminal()) {
                 m.put(s, EnumSet.of(ROUTING));
+            } else {
+                m.computeIfAbsent(s, ignored -> EnumSet.noneOf(SessionStatus.class))
+                        .add(FAILED_REQUEST);
             }
         }
         return Map.copyOf(m);
@@ -61,7 +72,7 @@ public class SessionStateMachine {
     public void assertTransit(SessionStatus from, SessionStatus to) {
         if (!canTransit(from, to)) {
             throw new IllegalStateException(
-                    "非法状态迁移: %s -> %s".formatted(from, to));
+                    "Invalid session transition: %s -> %s".formatted(from, to));
         }
     }
 }

@@ -12,6 +12,17 @@ class SessionStateMachineTest {
     private final SessionStateMachine machine = new SessionStateMachine();
 
     @Test
+    void publicDispatchAndFailureTransitionsDoNotGrantDeviceExecution() {
+        assertThat(machine.canTransit(SessionStatus.ROUTING, SessionStatus.DISPATCHING)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.REPAIRING)).isFalse();
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.FAILED_REQUEST)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.CONFIRMING_REPAIR, SessionStatus.FAILED_REQUEST)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.FAILED_REQUEST, SessionStatus.ROUTING)).isTrue();
+        assertThat(SessionStatus.GUIDED_MANUAL.isTerminal()).isTrue();
+        assertThat(machine.canTransit(SessionStatus.GUIDED_MANUAL, SessionStatus.ROUTING)).isTrue();
+    }
+
+    @Test
     void 合法迁移全部按状态机定义放行() {
         assertThat(machine.canTransit(SessionStatus.CREATED, SessionStatus.ROUTING)).isTrue();
         assertThat(machine.canTransit(SessionStatus.ROUTING, SessionStatus.ANALYZING)).isTrue();
@@ -63,5 +74,44 @@ class SessionStateMachineTest {
         assertThat(SessionStatus.CONFIRMING_REPAIR.isAwaitingUser()).isTrue();
         assertThat(SessionStatus.AWAITING_LOCATION.isAwaitingUser()).isTrue();
         assertThat(SessionStatus.REPAIRING.isAwaitingUser()).isFalse();
+    }
+
+    @Test
+    void 等待态可因取消进入COMPLETED_UNFIXED且可再开新轮() {
+        assertThat(machine.canTransit(SessionStatus.CLARIFYING, SessionStatus.COMPLETED_UNFIXED)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.DEVICE_CONFIRMING, SessionStatus.COMPLETED_UNFIXED)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.AWAITING_LOCATION, SessionStatus.COMPLETED_UNFIXED)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.CONFIRMING_REPAIR, SessionStatus.COMPLETED_UNFIXED)).isTrue();
+        assertThat(SessionStatus.COMPLETED_UNFIXED.isTerminal()).isTrue();
+        assertThat(machine.canTransit(SessionStatus.COMPLETED_UNFIXED, SessionStatus.ROUTING)).isTrue();
+    }
+
+    @Test
+    void DISPATCHING增量迁移覆盖能力目标与确定性收尾() {
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.ANSWERING)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.ANALYZING)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.CLARIFYING)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.COMPLETED_ANSWERED)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.COMPLETED_UNFIXED)).isTrue();
+        // DISPATCHING 不得直达设备执行或确认门之外的修复动作
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.VERIFYING)).isFalse();
+    }
+
+    @Test
+    void FAILED_REQUEST与ERROR增量语义() {
+        // FAILED_REQUEST 为可续聊的终态失败(R17 可回 ROUTING),不得直达执行
+        assertThat(SessionStatus.FAILED_REQUEST.isTerminal()).isTrue();
+        assertThat(machine.canTransit(SessionStatus.FAILED_REQUEST, SessionStatus.ROUTING)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.FAILED_REQUEST, SessionStatus.REPAIRING)).isFalse();
+        assertThat(machine.canTransit(SessionStatus.ROUTING, SessionStatus.FAILED_REQUEST)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.ANSWERING, SessionStatus.FAILED_REQUEST)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.DISPATCHING, SessionStatus.FAILED_REQUEST)).isTrue();
+    }
+
+    @Test
+    void GUIDED_MANUAL终态可经新消息开新轮() {
+        assertThat(SessionStatus.GUIDED_MANUAL.isTerminal()).isTrue();
+        assertThat(machine.canTransit(SessionStatus.GUIDED_MANUAL, SessionStatus.ROUTING)).isTrue();
+        assertThat(machine.canTransit(SessionStatus.GUIDED_MANUAL, SessionStatus.REPAIRING)).isFalse();
     }
 }
