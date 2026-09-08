@@ -31,6 +31,7 @@ RoutingDecision 使用不可变 record，ProblemAnalysis/DiagnosisConclusion 保
 | outcome | RoutingOutcome | 必填；SINGLE / CLARIFY / COMPOSITE / OUT_OF_SCOPE |
 | intent | CapabilityIntent或null | SINGLE必须为KNOWLEDGE / DEVICE_QUERY / DIAGNOSIS / CONTROL；其他outcome必须为空 |
 | diagnosisMode | DiagnosisMode或null | DIAGNOSIS时DEFAULT或AFTERSALES；其他意图为空 |
+| requiresKnowledgeBase | Boolean或null | SINGLE + KNOWLEDGE 必填：常识 false，依赖产品资料或无法确定是常识 true；其他意图/outcome 必须为空。缺失或矛盾值转澄清 |
 | targetHint | String或null | 未验证的设备线索，不作为已授权设备ID |
 | clarifyQuestion | String或null | CLARIFY/COMPOSITE应有简短问题；为空时服务端使用固定澄清文案 |
 
@@ -41,6 +42,7 @@ RoutingDecision 使用不可变 record，ProblemAnalysis/DiagnosisConclusion 保
   "outcome": "SINGLE",
   "intent": "DEVICE_QUERY",
   "diagnosisMode": null,
+  "requiresKnowledgeBase": null,
   "targetHint": "客厅灯",
   "clarifyQuestion": null
 }
@@ -53,6 +55,7 @@ RoutingDecision 使用不可变 record，ProblemAnalysis/DiagnosisConclusion 保
   "outcome": "COMPOSITE",
   "intent": null,
   "diagnosisMode": null,
+  "requiresKnowledgeBase": null,
   "targetHint": null,
   "clarifyQuestion": "你想先查询亮度，还是发起调节亮度的请求？"
 }
@@ -65,6 +68,7 @@ RoutingDecision 使用不可变 record，ProblemAnalysis/DiagnosisConclusion 保
   "outcome": "SINGLE",
   "intent": "DIAGNOSIS",
   "diagnosisMode": "AFTERSALES",
+  "requiresKnowledgeBase": null,
   "targetHint": null,
   "clarifyQuestion": null
 }
@@ -77,7 +81,9 @@ RoutingDecision 使用不可变 record，ProblemAnalysis/DiagnosisConclusion 保
 | 条件 | 公共行为 | 设备访问 |
 | --- | --- | --- |
 | 四类明确单一意图 | 显式映射业务AssistantCapability并投递已注册处理器 | 公共路由本身零设备读写 |
-| 型号知识 | KNOWLEDGE | 不因此查询本人设备 |
+| 通用常识 | KNOWLEDGE，requiresKnowledgeBase=false | 无需查询知识库 |
+| 型号知识 | KNOWLEDGE，requiresKnowledgeBase=true | 依赖知识库，不因此查询本人设备 |
+| 结合本人设备参数解释、比较、估算或建议 | DEVICE_QUERY，requiresKnowledgeBase=null | 只读，需归属校验与真实参数；不因解释/估算而转复合意图 |
 | 明确售后 | DIAGNOSIS + AFTERSALES | 不先探测或控制 |
 | 意图不明 / 非法类型 / 矛盾结构 / 未知分类 | CLARIFYING + awaiting，使用脱敏澄清文案 | 零读写 |
 | 多意图 / 条件请求 / 多设备写 | CLARIFYING，要求选择本轮事项 | 零读写 |
@@ -96,7 +102,7 @@ core/routing 中定义一份接口和分发器，以 domain/enums/AssistantCapab
 
 - 服务端已认证的AuthUser、sessionId、reportId、round、当前messageId。
 - 当前content、可选兼容confirmRepair意向、所属等待态/能力上下文。
-- 已验证能力及售后子模式、未验证targetHint。
+- 已验证能力、售后子模式、requiresKnowledgeBase 判断及未验证targetHint。业务等待续接不重新分类，此判断为空，由原处理器恢复自身上下文。
 - 固定历史边界与本次处理截止；不给处理器任意其他用户历史。
 
 **行为**：

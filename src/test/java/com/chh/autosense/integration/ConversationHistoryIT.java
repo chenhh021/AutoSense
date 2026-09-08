@@ -56,10 +56,10 @@ class ConversationHistoryIT extends AbstractIntegrationIT {
                         "userPassword", "testPass123", "confirmPassword", "testPass123"),
                 JsonNode.class);
         assertThat(registration.getStatusCode().value()).isEqualTo(201);
-        userId = registration.getBody().get("id").asLong();
+        userId = registration.getBody().get("data").get("id").asLong();
         ResponseEntity<JsonNode> login = restTemplate.postForEntity(url("/api/v1/users/login"),
                 Map.of("userAccount", account, "userPassword", "testPass123"), JsonNode.class);
-        token = login.getBody().get("token").asText();
+        token = login.getBody().get("data").get("token").asText();
     }
 
     @Test
@@ -126,7 +126,7 @@ class ConversationHistoryIT extends AbstractIntegrationIT {
                 "userPassword", "testPass123", "confirmPassword", "testPass123"), JsonNode.class);
         ResponseEntity<JsonNode> login = restTemplate.postForEntity(url("/api/v1/users/login"),
                 Map.of("userAccount", other, "userPassword", "testPass123"), JsonNode.class);
-        String otherToken = login.getBody().get("token").asText();
+        String otherToken = login.getBody().get("data").get("token").asText();
 
         ResponseEntity<JsonNode> denied = restTemplate.exchange(
                 url("/api/v1/sessions/" + sessionId + "/messages"), HttpMethod.GET,

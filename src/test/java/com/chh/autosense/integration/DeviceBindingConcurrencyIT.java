@@ -78,7 +78,7 @@ class DeviceBindingConcurrencyIT extends AbstractIntegrationIT {
 
         ResponseEntity<JsonNode> bound = bindDevice("user-420", sn, "原始名称");
         assertThat(bound.getStatusCode().value()).isEqualTo(201);
-        long deviceId = bound.getBody().get("id").asLong();
+        long deviceId = bound.getBody().get("data").get("id").asLong();
 
         // 他人绑定同一 SN 失败
         ResponseEntity<JsonNode> conflict = bindDevice("user-421", sn, "抢占名称");

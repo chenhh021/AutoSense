@@ -1,6 +1,7 @@
 package com.chh.autosense.integration;
 
 import com.chh.autosense.core.security.AuthUser;
+import com.chh.autosense.config.SessionSchemaValidator;
 import com.chh.autosense.core.session.SessionLeaseService;
 import com.chh.autosense.core.session.SessionProcessingService;
 import com.chh.autosense.core.session.memory.ConversationHistoryService;
@@ -16,6 +17,8 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -191,8 +194,21 @@ class SessionProcessingIT extends AbstractIntegrationIT {
             try (var statement = connection.createStatement()) {
             statement.execute("CREATE TABLE repair_session (id BIGINT PRIMARY KEY, status VARCHAR(32))");
             statement.execute("INSERT INTO repair_session VALUES (42, 'COMPLETED_FIXED')");
+            var validator = new SessionSchemaValidator(new JdbcTemplate(new SingleConnectionDataSource(connection, true)));
+            assertThatThrownBy(validator::afterPropertiesSet)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("scripts/migration/20260907-assistant-processing.sql");
+            // Re-running the fresh-database initializer leaves an existing table unchanged.
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("schema.sql"));
+            assertThatThrownBy(validator::afterPropertiesSet)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("SQL_INIT_MODE=always does not upgrade existing tables");
+            // Also cover a partially applied migration (only one of the two columns exists).
+            statement.execute("ALTER TABLE repair_session ADD COLUMN processing_message_id BIGINT NULL");
+            assertThatThrownBy(validator::afterPropertiesSet).isInstanceOf(IllegalStateException.class);
             for (int i = 0; i < 2; i++) {
                 ScriptUtils.executeSqlScript(connection, new FileSystemResource("scripts/migration/20260907-assistant-processing.sql"));
+                assertThatCode(validator::afterPropertiesSet).doesNotThrowAnyException();
             }
             try (var rows = statement.executeQuery("SELECT * FROM repair_session WHERE id = 42")) {
                 assertThat(rows.next()).isTrue(); assertThat(rows.getString("status")).isEqualTo("COMPLETED_FIXED");

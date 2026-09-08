@@ -7,6 +7,7 @@ import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 import com.chh.autosense.exception.ApiException;
 import com.chh.autosense.exception.ErrorCode;
 import com.chh.autosense.utils.PromptInputEncoder;
+import com.chh.autosense.utils.AiCallLog;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -28,25 +29,27 @@ public class LangChain4jProblemAnalyzer implements ProblemAnalyzer {
 
     @Override
     public ProblemAnalysis analyze(String text, ConversationHistorySnapshot history) {
-        long started = System.nanoTime();
+        AiCallLog call = AiCallLog.start("problem-analysis");
         try {
-            ProblemAnalysis analysis = problemAnalysisServiceFactory.problemAnalysisService()
-                    .analyze(encoder.history(history), encoder.text(text));
-            log.info("AI call completed: operation=problem-analysis, elapsedMs={}",
-                    (System.nanoTime() - started) / 1_000_000);
+            String historyJson = encoder.history(history);
+            String textJson = encoder.text(text);
+            call.phase(AiCallLog.Phase.SERVICE_SETUP);
+            var service = problemAnalysisServiceFactory.problemAnalysisService();
+            call.phase(AiCallLog.Phase.MODEL_INVOCATION);
+            ProblemAnalysis analysis = service.analyze(historyJson, textJson);
+            call.completed();
             if (analysis == null) {
                 return new ProblemAnalysis(null, null, null, false,
                         "没能理解您的问题，请换一种方式描述设备与故障现象。");
             }
             return analysis;
         } catch (RuntimeException e) {
+            call.failed(e);
             if (AiFailureMapping.isStructureFailure(e) && !AiFailureMapping.isTransportFailure(e)) {
                 log.warn("AI call rejected: operation=problem-analysis, reasonCode=MODEL_OUTPUT_UNPARSEABLE");
                 return new ProblemAnalysis(null, null, null, false,
                         "没能理解您的问题，请换一种方式描述设备与故障现象。");
             }
-            log.warn("AI call failed: operation=problem-analysis, elapsedMs={}, errorType={}",
-                    (System.nanoTime() - started) / 1_000_000, e.getClass().getSimpleName());
             throw new ApiException(ErrorCode.AI_SERVICE_UNAVAILABLE, "助手服务暂时不可用，请稍后再试。");
         }
     }

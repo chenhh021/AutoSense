@@ -121,3 +121,10 @@
 - 当前 `config/LangChain4jConfig`、`core/routing/IntentClassifier` 和 `domain/enums/Intent` 是重写/调整对象；已有底层模型调用与手动解析不视为完成 AI Service 方案。
 - 仅规划现有后端 API 能力；不要求重做仓库已有前端，不增加角色修改、他人密码重置、设备代创建、批量控制或跨会话长期偏好记忆。
 - 四能力处理器的内部实现分别在其他 feature 交付；本 feature 可独立验收路由及公共行为，不以四能力全部实现为完成前提。
+
+## 2026-09-09 意图识别扩展
+
+- KNOWLEDGE 路由 MUST 增加 `requiresKnowledgeBase` 布尔判断：无需产品资料的通用常识为 false；型号规格、产品文档、专有功能等依赖知识库的问题为 true；无法确认属于常识时选择 true。
+- DEVICE_QUERY MUST 包括需要读取本人具体设备参数后才能解释、比较、估算或提出建议的问题；不只限于直接列出参数。仅询问某型号公开规格仍属于 KNOWLEDGE 且需要知识库。
+- 只读分析不构成 CONTROL；直接状态变更仍走确定性的控制能力。故障原因分析仍属于 DIAGNOSIS。
+- 新字段仅用于内部路由及能力请求，非 KNOWLEDGE 必须为 null；知识意图缺失该判断视为非法分类并澄清。路由层不执行知识检索或设备访问。

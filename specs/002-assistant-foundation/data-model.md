@@ -80,7 +80,7 @@ AI 分类不再与设备控制状态混在一起。现有诊断状态仍可用�
 
 **AI 层**（下列输出对象采用 Java 21 record，枚举仍为 enum）：
 
-- ai/model/RoutingDecision：outcome、intent、diagnosisMode、targetHint、clarifyQuestion。
+- ai/model/RoutingDecision：outcome、intent、diagnosisMode、targetHint、clarifyQuestion、requiresKnowledgeBase。最后一项为可空 Boolean：仅 SINGLE + KNOWLEDGE 必填，常识 false、需检索 true，其余为空；经校验后透传 CapabilityRequest，不新增数据库列。
 - ai/model/enums/RoutingOutcome：SINGLE / CLARIFY / COMPOSITE / OUT_OF_SCOPE。
 - ai/model/enums/CapabilityIntent：KNOWLEDGE / DEVICE_QUERY / DIAGNOSIS / CONTROL。
 - ai/model/enums/DiagnosisMode：DEFAULT / AFTERSALES；仅DIAGNOSIS可有意义值。

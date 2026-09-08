@@ -5,6 +5,7 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 
@@ -19,11 +20,14 @@ import java.time.Duration;
  * 仅当 autosense.llm.mode=real 时装配。
  */
 @Configuration
+@Slf4j
 @ConditionalOnProperty(name = "autosense.llm.mode", havingValue = "real")
 public class LangChain4jConfig {
 
     @Bean
     public OpenAiChatModel chatModel(LlmProperties props) {
+        log.info("AI model configured: provider=OPENAI_COMPATIBLE, streaming=false, timeoutSeconds={}, maxRetries={}",
+                props.timeoutSeconds(), props.maxRetries());
         return OpenAiChatModel.builder()
                 .baseUrl(props.baseUrl())
                 .apiKey(props.apiKey())
@@ -38,6 +42,8 @@ public class LangChain4jConfig {
 
     @Bean
     public OpenAiStreamingChatModel streamingChatModel(LlmProperties props) {
+        log.info("AI model configured: provider=OPENAI_COMPATIBLE, streaming=true, timeoutSeconds={}",
+                props.timeoutSeconds());
         return OpenAiStreamingChatModel.builder()
                 .baseUrl(props.baseUrl())
                 .apiKey(props.apiKey())

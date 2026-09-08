@@ -1,4 +1,4 @@
-package com.chh.autosense.core.device;
+package com.chh.autosense.service.device;
 
 import com.chh.autosense.config.DeviceTypeRegistryProperties;
 import com.chh.autosense.core.device.spi.DeviceAdapter;
@@ -16,13 +16,13 @@ import java.util.stream.Collectors;
  * 类型是否受支持以 yaml 注册表为准。
  */
 @Component
-public class DeviceAdapterRegistry {
+public class DeviceAdapterRegistryService {
 
     private final Map<String, DeviceAdapter> adapters;
     private final DeviceTypeRegistryProperties registryProperties;
 
-    public DeviceAdapterRegistry(List<DeviceAdapter> adapterList,
-                                 DeviceTypeRegistryProperties registryProperties) {
+    public DeviceAdapterRegistryService(List<DeviceAdapter> adapterList,
+                                        DeviceTypeRegistryProperties registryProperties) {
         this.adapters = adapterList.stream()
                 .collect(Collectors.toMap(DeviceAdapter::deviceType, Function.identity()));
         this.registryProperties = registryProperties;

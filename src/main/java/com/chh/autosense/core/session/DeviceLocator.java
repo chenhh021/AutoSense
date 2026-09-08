@@ -1,6 +1,6 @@
 package com.chh.autosense.core.session;
 
-import com.chh.autosense.core.device.DeviceAdapterRegistry;
+import com.chh.autosense.service.device.DeviceAdapterRegistryService;
 import com.chh.autosense.domain.entity.Device;
 import com.chh.autosense.mapper.DeviceMapper;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -16,9 +16,9 @@ import java.util.List;
 public class DeviceLocator {
 
     private final DeviceMapper deviceMapper;
-    private final DeviceAdapterRegistry adapterRegistry;
+    private final DeviceAdapterRegistryService adapterRegistry;
 
-    public DeviceLocator(DeviceMapper deviceMapper, DeviceAdapterRegistry adapterRegistry) {
+    public DeviceLocator(DeviceMapper deviceMapper, DeviceAdapterRegistryService adapterRegistry) {
         this.deviceMapper = deviceMapper;
         this.adapterRegistry = adapterRegistry;
     }

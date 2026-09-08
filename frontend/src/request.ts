@@ -20,9 +20,17 @@ request.interceptors.request.use((config) => {
   return config
 })
 
-// 响应拦截器：直接返回响应数据，统一处理错误
+// 响应拦截器：解包后端 BaseResponse({code, data, message})，统一处理错误
 request.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    const body = response.data
+    // POST 端点统一返回 BaseResponse：code=0 取 data，否则按错误信息拒绝
+    if (body && typeof body === 'object' && 'code' in body && 'data' in body) {
+      if (body.code === 0) return body.data
+      return Promise.reject(new Error(body.message || '请求失败'))
+    }
+    return body
+  },
   (error) => {
     if (error.response?.status === 401) {
       clearStoredSession()

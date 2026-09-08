@@ -17,6 +17,24 @@ declare namespace API {
     distanceMeters?: number;
   };
 
+  type BaseResponseDeviceView = {
+    code?: number;
+    data?: DeviceView;
+    message?: string;
+  };
+
+  type BaseResponseLoginResponse = {
+    code?: number;
+    data?: LoginResponse;
+    message?: string;
+  };
+
+  type BaseResponseUserView = {
+    code?: number;
+    data?: UserView;
+    message?: string;
+  };
+
   type ChatMessageView = {
     role?: string;
     content?: string;
@@ -36,6 +54,10 @@ declare namespace API {
     problem: string;
   };
 
+  type deleteUsingDELETEParams = {
+    sessionId: number;
+  };
+
   type DeviceView = {
     id?: number;
     name?: string;
@@ -49,27 +71,14 @@ declare namespace API {
     online?: boolean;
   };
 
-  type ErrorResponse = {
-    /** 业务错误码 */
-    code?: string;
-    /** 便于阅读的错误原因 */
-    message?: string;
-    /** 关联的诊断会话 ID；用户账号接口通常为空 */
-    sessionId?: number;
-  };
-
   type getParams = {
     sessionId: number;
   };
 
   type list1Params = {
-    /** 页码，从 1 开始；小于 1 时按 1 处理 */
     page?: number;
-    /** 每页记录数，取值会被限制在 1~100 */
     size?: number;
-    /** 账号或昵称模糊搜索关键字；不传或空白时查询全部 */
     keyword?: string;
-    /** 是否包含已禁用用户 */
     includeDisabled?: boolean;
   };
 
@@ -133,7 +142,6 @@ declare namespace API {
   };
 
   type setStatusParams = {
-    /** 需要禁用或启用的目标用户 ID */
     id: number;
   };
 

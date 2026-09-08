@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { deleteSession, listSessions } from '@/api/custom'
+import { deleteUsingDelete as deleteSession, list } from '@/api/sessionController'
 
 const router = useRouter()
 
@@ -12,7 +12,7 @@ const loading = ref(false)
 const fetchSessions = async () => {
   loading.value = true
   try {
-    sessions.value = await listSessions()
+    sessions.value = ((await list()) as { sessions?: API.SessionListItemView[] }).sessions ?? []
   } catch (e) {
     message.error('加载对话列表失败')
   } finally {
@@ -31,7 +31,7 @@ const continueSession = (session: API.SessionListItemView) => {
 const handleDelete = async (session: API.SessionListItemView) => {
   if (!session.sessionId) return
   try {
-    await deleteSession(session.sessionId)
+    await deleteSession({ sessionId: session.sessionId })
     message.success('删除成功')
     fetchSessions()
   } catch (e) {

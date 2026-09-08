@@ -12,6 +12,7 @@ import com.chh.autosense.mapper.*;
 import com.chh.autosense.utils.LogContextUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mybatisflex.core.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,17 +31,20 @@ public class SessionProcessingService {
     private final ProblemReportMapper reports;
     private final ChatMessageMapper messages;
     private final RepairActionLogMapper audit;
+    private final DiagnosticSnapshotMapper snapshots;
     private final SessionTransitionLog transitions;
     private final AssistantProperties properties;
     private final ObjectMapper json;
 
     public SessionProcessingService(RepairSessionMapper sessions, ProblemReportMapper reports,
-            ChatMessageMapper messages, RepairActionLogMapper audit, SessionTransitionLog transitions,
+            ChatMessageMapper messages, RepairActionLogMapper audit, DiagnosticSnapshotMapper snapshots,
+            SessionTransitionLog transitions,
             AssistantProperties properties, LlmProperties llm, ObjectMapper json) {
         this.sessions = sessions;
         this.reports = reports;
         this.messages = messages;
         this.audit = audit;
+        this.snapshots = snapshots;
         this.transitions = transitions;
         this.properties = properties;
         this.json = json;
@@ -172,6 +176,28 @@ public class SessionProcessingService {
             if (!status.isTerminal() && !status.isAwaitingUser()) failLegacyLocked(session);
         }
         return session;
+    }
+
+    /**
+     * 删除本人会话:处理中的会话先尝试超时补偿结清,仍在处理则拒绝(不假成功);
+     * 同一事务内级联删除消息、上报、快照与审计记录后删除会话行。
+     */
+    @Transactional
+    public void deleteOwned(AuthUser user, long sessionId) {
+        RepairSession session = lockOwned(user, sessionId);
+        if (session.getProcessingMessageId() != null
+                && !expireLocked(session, session.getProcessingMessageId())) {
+            log.warn("Session operation rejected: sessionId={}, operation=delete, errorCode=SESSION_BUSY",
+                    sessionId);
+            throw new ApiException(ErrorCode.SESSION_BUSY, "该会话正在处理中，请稍后再试。", sessionId);
+        }
+        messages.deleteByQuery(QueryWrapper.create().where("session_id = ?", sessionId));
+        reports.deleteByQuery(QueryWrapper.create().where("session_id = ?", sessionId));
+        snapshots.deleteByQuery(QueryWrapper.create().where("session_id = ?", sessionId));
+        audit.deleteByQuery(QueryWrapper.create().where("session_id = ?", sessionId));
+        sessions.deleteById(sessionId);
+        SessionTransitionLog.afterCommit(() -> log.info(
+                "Session operation completed: sessionId={}, operation=delete, result=DELETED", sessionId));
     }
 
     private RepairSession current(Accepted accepted) {

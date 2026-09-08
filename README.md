@@ -10,6 +10,12 @@
 
 ## 快速开始
 
+已有数据库升级前，请先备份并对 `MYSQL_URL` 指向的数据库执行
+[`20260907-assistant-processing.sql`](scripts/migration/20260907-assistant-processing.sql)。
+脚本幂等地补齐会话处理字段；`SQL_INIT_MODE=always` / `schema.sql` 仅初始化缺失的表，
+不会升级旧表。漏迁移会造成对话创建和会话列表查询失败，后端会在启动时检查并提示。
+全新数据库才使用 `SQL_INIT_MODE=always` 显式初始化，完成后恢复为 `never`。
+
 ```bash
 # 1. 启动依赖(MySQL 8 + Redis + deviceSimulator 模拟设备服务,端口 8081)
 docker compose up -d

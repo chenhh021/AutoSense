@@ -280,3 +280,11 @@ SC-001由T014/T016验证分类与零写；SC-002由T012/T030/T032/T040/T042验�
 | 合计 | T001–T056 | 56 |
 
 本次复用全部56个任务ID并保持未勾选状态，提示词增量已并入现有实施与验证任务。可选真实模型验证的“未运行”必须保留在交付记录中，不可解释为测试通过；也不把本任务文档生成视为功能已经实施。
+
+## 2026-09-09 意图识别扩展任务
+
+- [X] T057 扩展 RoutingDecision/CapabilityRequest、资源提示词、校验器和会话分发，透传知识库检索判断。
+- [X] T058 扩展 mock 分类和 003/004 接入契约，覆盖依赖本人设备参数的只读问答并保留控制/诊断边界。
+- [X] T059 验证真实 AI Service 字段解析、非法组合、跨轮透传与零设备访问，记录测试结果。
+
+验证：2026-09-09，`./mvnw.cmd -Pit "-Dtest=AssistantRoutingContractTest,AiServiceAssemblyTest,AssistantRoutingIT" test`，15 项测试通过（5 项契约、6 项真实 SDK/本地 HTTP 协议替身、4 项隔离 MySQL/Redis 集成）。记录位于 `target/routing-extension-validation.log`。未调用真实模型提供商，本记录不代表对实际模型语义分类准确率的测量；未访问真实设备。

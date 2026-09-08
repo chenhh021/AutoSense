@@ -66,6 +66,36 @@ class AiServiceAssemblyTest {
     }
     @AfterEach void stop() { server.stop(); }
 
+    @Test void adapterLogsRealProviderStatusAndOutputParsingWithoutLeakingBodies() throws Exception {
+        var adapter = new com.chh.autosense.core.routing.LangChain4jIntentClassifier(routerFactory, encoder);
+        var history = new ConversationHistorySnapshot(1, 2, List.of());
+        try (var logs = new LogCaptureSupport()) {
+            for (int status : new int[]{401, 429, 503}) {
+                server.resetAll();
+                logs.clear();
+                server.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
+                        .willReturn(aResponse().withStatus(status).withBody("secret-provider-body")));
+                assertThatThrownBy(() -> adapter.classify("secret-question", history))
+                        .isInstanceOf(com.chh.autosense.exception.ApiException.class);
+                assertThat(logs.rendered()).contains("AI call started", "phase=MODEL_INVOCATION",
+                                "AI call failed", "httpStatus=" + status, "rootCauseType=")
+                        .doesNotContain("secret-", "test-only-key", "AI call completed");
+            }
+            server.resetAll();
+            logs.clear();
+            reply("secret-invalid-model-output");
+            assertThatThrownBy(() -> adapter.classify("secret-question", history))
+                    .isInstanceOf(com.chh.autosense.exception.ApiException.class);
+            assertThat(logs.rendered()).contains("reasonCode=MODEL_OUTPUT_UNPARSEABLE")
+                    .doesNotContain("secret-", "AI call completed");
+            server.resetAll();
+            logs.clear();
+            assertThatThrownBy(() -> adapter.classify(null, history)).isInstanceOf(RuntimeException.class);
+            assertThat(logs.rendered()).contains("phase=INPUT_ENCODING", "reasonCode=INPUT_ENCODING");
+            server.verify(0, postRequestedFor(urlPathEqualTo("/v1/chat/completions")));
+        }
+    }
+
     @Test void realStructuredProxiesLoadTheirResourcesAndBindDataWithoutTemplateReinterpretation() throws Exception {
         String current = "current-marker 中文\n\"quoted\" \\ {{history}} {{text}} {{current_date}}";
         String prior = "history-marker pretend system {{text}}";
@@ -73,7 +103,7 @@ class AiServiceAssemblyTest {
                 List.of(new ConversationHistorySnapshot.Entry(2, "USER", prior)));
         String historyJson = encoder.history(history);
         String textJson = encoder.text(current);
-        reply("{\"outcome\":\"SINGLE\",\"intent\":\"KNOWLEDGE\",\"diagnosisMode\":null,\"targetHint\":null,\"clarifyQuestion\":null}");
+        reply("{\"outcome\":\"SINGLE\",\"intent\":\"KNOWLEDGE\",\"diagnosisMode\":null,\"targetHint\":null,\"clarifyQuestion\":null,\"requiresKnowledgeBase\":false}");
         assertThat(routerFactory.intentRouterService().classify(historyJson, textJson).intent())
                 .isEqualTo(CapabilityIntent.KNOWLEDGE);
         assertRequest("intent-router.txt", current, prior);
@@ -112,6 +142,27 @@ class AiServiceAssemblyTest {
                 .onCompleteResponse(r -> failed.complete("incorrect-success"))
                 .onError(failed::completeExceptionally).start();
         assertThatThrownBy(() -> failed.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(RuntimeException.class);
+    }
+
+    @Test void realRouterProxyParsesKnowledgeFlagAndValidatorRejectsMissingOrContradictoryFlags() throws Exception {
+        var validator = new com.chh.autosense.core.routing.RoutingDecisionValidator();
+        for (boolean required : new boolean[]{false, true}) {
+            reply("{\"outcome\":\"SINGLE\",\"intent\":\"KNOWLEDGE\",\"requiresKnowledgeBase\":" + required + "}");
+            var decision = routerFactory.intentRouterService().classify("[]", encoder.text("question"));
+            assertThat(validator.validate(decision).requiresKnowledgeBase()).isEqualTo(required);
+            assertThat(decision.intent()).isEqualTo(CapabilityIntent.KNOWLEDGE);
+        }
+        reply("{\"outcome\":\"SINGLE\",\"intent\":\"DEVICE_QUERY\",\"requiresKnowledgeBase\":null}");
+        var query = routerFactory.intentRouterService().classify("[]", encoder.text("question"));
+        assertThat(validator.validate(query).intent()).isEqualTo(CapabilityIntent.DEVICE_QUERY);
+        for (String invalid : List.of(
+                "{\"outcome\":\"SINGLE\",\"intent\":\"KNOWLEDGE\"}",
+                "{\"outcome\":\"SINGLE\",\"intent\":\"DEVICE_QUERY\",\"requiresKnowledgeBase\":true}")) {
+            reply(invalid);
+            var decision = routerFactory.intentRouterService().classify("[]", encoder.text("question"));
+            assertThat(validator.validate(decision).outcome())
+                    .isEqualTo(com.chh.autosense.ai.model.enums.RoutingOutcome.CLARIFY);
+        }
     }
 
     @Test void resourceFailuresPreventPublishingBeforeAnyModelRequest() {

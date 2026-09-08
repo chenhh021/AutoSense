@@ -52,7 +52,7 @@ class AssistantLoggingIT extends AbstractIntegrationIT {
                 "userPassword", "testPass123", "confirmPassword", "testPass123"), JsonNode.class);
         ResponseEntity<JsonNode> login = restTemplate.postForEntity(url("/api/v1/users/login"),
                 Map.of("userAccount", account, "userPassword", "testPass123"), JsonNode.class);
-        token = login.getBody().get("token").asText();
+        token = login.getBody().get("data").get("token").asText();
     }
 
     @Test

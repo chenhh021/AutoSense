@@ -42,8 +42,8 @@ class UserManagementIT extends AbstractIntegrationIT {
                 "userAccount", account, "userPassword", "pass1234",
                 "confirmPassword", "pass1234"), null);
         assertThat(reg.getStatusCode().value()).as("注册: %s", reg.getBody()).isEqualTo(201);
-        assertThat(reg.getBody().get("userName").asText()).isEqualTo(account);
-        assertThat(reg.getBody().get("userRole").asText()).isEqualTo("user");
+        assertThat(reg.getBody().get("data").get("userName").asText()).isEqualTo(account);
+        assertThat(reg.getBody().get("data").get("userRole").asText()).isEqualTo("user");
         assertThat(reg.getBody().has("userPassword")).isFalse();
 
         // 重复注册 → 409
@@ -51,7 +51,7 @@ class UserManagementIT extends AbstractIntegrationIT {
                 "userAccount", account, "userPassword", "pass1234",
                 "confirmPassword", "pass1234"), null);
         assertThat(dup.getStatusCode().value()).isEqualTo(409);
-        assertThat(dup.getBody().get("code").asText()).isEqualTo("ACCOUNT_EXISTS");
+        assertThat(dup.getBody().get("data").get("code").asText()).isEqualTo("ACCOUNT_EXISTS");
 
         // 弱密码 → 400
         ResponseEntity<JsonNode> weak = post("/api/v1/users/register", Map.of(
@@ -175,7 +175,7 @@ class UserManagementIT extends AbstractIntegrationIT {
                 "userAccount", account, "userPassword", password), null);
         assertThat(resp.getStatusCode().value()).as("登录 %s: %s", account, resp.getBody())
                 .isEqualTo(200);
-        return resp.getBody().get("token").asText();
+        return resp.getBody().get("data").get("token").asText();
     }
 
     private HttpHeaders auth(String token) {

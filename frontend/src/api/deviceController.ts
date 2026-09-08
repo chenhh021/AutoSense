@@ -15,7 +15,7 @@ export async function register1(
   body: API.RegisterDeviceRequest,
   options?: { [key: string]: any }
 ) {
-  return request<API.DeviceView>("/api/v1/devices", {
+  return request<API.BaseResponseDeviceView>("/api/v1/devices", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

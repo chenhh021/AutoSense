@@ -81,4 +81,45 @@ class LoggingInfrastructureTest {
             else System.setProperty("CONSOLE_LOG_PATTERN", previous);
         }
     }
+
+    @Test void defaultPatternsHideAbsentContextAndGroupConversationFields() throws Exception {
+        String previous = System.getProperty("CONSOLE_LOG_PATTERN");
+        try {
+            // Cover the XML fallback and the pattern exported by Spring Boot from application.yaml.
+            var yaml = new org.springframework.beans.factory.config.YamlPropertiesFactoryBean();
+            yaml.setResources(new org.springframework.core.io.ClassPathResource("application.yaml"));
+            var environment = new org.springframework.core.env.StandardEnvironment();
+            environment.getPropertySources().addFirst(new org.springframework.core.env.PropertiesPropertySource(
+                    "testYaml", yaml.getObject()));
+            String bootPattern = environment.getProperty("logging.pattern.console");
+            for (boolean boot : new boolean[]{false, true}) {
+                if (boot) System.setProperty("CONSOLE_LOG_PATTERN", bootPattern);
+                else System.clearProperty("CONSOLE_LOG_PATTERN");
+                try (LoggerContext isolated = new LoggerContext("context-layout-test")) {
+                    var uri = getClass().getResource("/log4j2-spring.xml").toURI();
+                    var config = ConfigurationFactory.getInstance().getConfiguration(isolated, "test", uri);
+                    isolated.start(config);
+                    var layout = config.getAppender("Console").getLayout();
+                    var event = org.apache.logging.log4j.core.impl.Log4jLogEvent.newBuilder()
+                            .setLoggerName("com.chh.autosense.test")
+                            .setLevel(org.apache.logging.log4j.Level.INFO).setThreadName("main")
+                            .setMessage(new org.apache.logging.log4j.message.SimpleMessage("Application started"))
+                            .setContextData(new org.apache.logging.log4j.util.SortedArrayStringMap()).build();
+                    String startup = layout.toSerializable(event).toString();
+                    assertThat(startup).contains("thread=main Application started")
+                            .doesNotContain("requestId=", "userId=", "sessionId=", "messageId=", "round=", "deviceId=", "[]");
+                    String requestId = "2529b69a-6cb0-4a87-9d68-4bf329804673";
+                    var context = new org.apache.logging.log4j.util.SortedArrayStringMap(Map.of(
+                            "requestId", requestId, "userId", "1", "sessionId", "9", "messageId", "41", "round", "3"));
+                    var conversation = new org.apache.logging.log4j.core.impl.Log4jLogEvent.Builder(event)
+                            .setContextData(context).build();
+                    assertThat(layout.toSerializable(conversation).toString()).contains(
+                            "[requestId=" + requestId + ", userId=1, sessionId=9, messageId=41, round=3, deviceId=] ");
+                }
+            }
+        } finally {
+            if (previous == null) System.clearProperty("CONSOLE_LOG_PATTERN");
+            else System.setProperty("CONSOLE_LOG_PATTERN", previous);
+        }
+    }
 }

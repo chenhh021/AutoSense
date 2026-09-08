@@ -34,8 +34,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -82,7 +86,8 @@ class SessionApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"problem\":\"灯不亮了\"}"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.data.code").value("UNAUTHORIZED"));
     }
 
     @Test
@@ -93,8 +98,9 @@ class SessionApiContractTest {
         mockMvc.perform(get("/api/v1/sessions/999")
                         .header("Authorization", "Bearer user-1"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("DEVICE_FORBIDDEN"))
-                .andExpect(jsonPath("$.sessionId").value(999));
+                .andExpect(jsonPath("$.code").value(40003))
+                .andExpect(jsonPath("$.data.code").value("DEVICE_FORBIDDEN"))
+                .andExpect(jsonPath("$.data.sessionId").value(999));
     }
 
     @Test
@@ -104,7 +110,8 @@ class SessionApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+                .andExpect(jsonPath("$.code").value(40000))
+                .andExpect(jsonPath("$.data.code").value("BAD_REQUEST"));
     }
 
     @Test
@@ -354,8 +361,46 @@ class SessionApiContractTest {
     void 补查接口未带令牌返回401() throws Exception {
         mockMvc.perform(get("/api/v1/sessions/7/messages"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.data.code").value("UNAUTHORIZED"));
         mockMvc.perform(get("/api/v1/sessions"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ---------- 删除会话 ----------
+
+    @Test
+    void 删除会话成功返回204() throws Exception {
+        mockMvc.perform(delete("/api/v1/sessions/1")
+                        .header("Authorization", "Bearer user-1"))
+                .andExpect(status().isNoContent());
+        verify(orchestrator).deleteSession(any(), eq(1L));
+    }
+
+    @Test
+    void 删除会话未带令牌返回401() throws Exception {
+        mockMvc.perform(delete("/api/v1/sessions/1"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.data.code").value("UNAUTHORIZED"));
+        verify(orchestrator, never()).deleteSession(any(), any());
+    }
+
+    @Test
+    void 删除会话的稳定错误语义() throws Exception {
+        assertDeleteError(ErrorCode.SESSION_NOT_FOUND, "会话不存在", 404, 40005);
+        assertDeleteError(ErrorCode.DEVICE_FORBIDDEN, "无权访问该会话", 403, 40003);
+        assertDeleteError(ErrorCode.SESSION_BUSY, "该会话正在处理中，请稍后再试。", 409, 40010);
+    }
+
+    private void assertDeleteError(ErrorCode code, String message, int status, int internalCode)
+            throws Exception {
+        doThrow(new ApiException(code, message, 1L)).when(orchestrator).deleteSession(any(), eq(1L));
+        mockMvc.perform(delete("/api/v1/sessions/1")
+                        .header("Authorization", "Bearer user-1"))
+                .andExpect(status().is(status))
+                .andExpect(jsonPath("$.code").value(internalCode))
+                .andExpect(jsonPath("$.data.code").value(code.name()))
+                .andExpect(jsonPath("$.data.message").value(message))
+                .andExpect(jsonPath("$.data.sessionId").value(1));
     }
 }

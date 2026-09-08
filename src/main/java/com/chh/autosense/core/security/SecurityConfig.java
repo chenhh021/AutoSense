@@ -1,8 +1,13 @@
 package com.chh.autosense.core.security;
 
+import com.chh.autosense.common.BaseResponse;
+import com.chh.autosense.common.ErrorResponse;
+import com.chh.autosense.utils.ResultUtils;
 import com.chh.autosense.config.CorsProperties;
 import com.chh.autosense.common.RequestLogFilter;
 import com.chh.autosense.constant.UserRoleConstants;
+import com.chh.autosense.exception.ErrorCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import jakarta.servlet.http.HttpServletResponse;
@@ -34,9 +39,11 @@ import java.util.List;
 public class SecurityConfig {
 
     private final CorsProperties corsProperties;
+    private final ObjectMapper objectMapper;
 
-    public SecurityConfig(CorsProperties corsProperties) {
+    public SecurityConfig(CorsProperties corsProperties, ObjectMapper objectMapper) {
         this.corsProperties = corsProperties;
+        this.objectMapper = objectMapper;
     }
 
     @Bean
@@ -62,12 +69,12 @@ public class SecurityConfig {
                 .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new RequestLogFilter(), BearerTokenAuthFilter.class)
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((req, res, e) -> { log.warn("Authentication rejected: errorCode=UNAUTHORIZED"); writeJson(res,
+                        .authenticationEntryPoint((req, res, e) -> { log.warn("Authentication rejected: errorCode=UNAUTHORIZED"); writeError(res,
                                 HttpServletResponse.SC_UNAUTHORIZED,
-                                "{\"code\":\"UNAUTHORIZED\",\"message\":\"未登录或令牌无效\"}"); })
-                        .accessDeniedHandler((req, res, e) -> { log.warn("Access denied: errorCode=FORBIDDEN"); writeJson(res,
+                                ErrorCode.UNAUTHORIZED, "未登录或令牌无效"); })
+                        .accessDeniedHandler((req, res, e) -> { log.warn("Access denied: errorCode=FORBIDDEN"); writeError(res,
                                 HttpServletResponse.SC_FORBIDDEN,
-                                "{\"code\":\"FORBIDDEN\",\"message\":\"无权限访问该资源\"}"); }))
+                                ErrorCode.FORBIDDEN, "无权限访问该资源"); }))
                 .build();
     }
 
@@ -108,11 +115,14 @@ public class SecurityConfig {
         return source;
     }
 
-    private static void writeJson(HttpServletResponse res, int status, String body)
+    /** 过滤器层的认证/授权失败与 GlobalExceptionHandler 保持一致:BaseResponse&lt;ErrorResponse&gt;。 */
+    private void writeError(HttpServletResponse res, int status, ErrorCode errorCode, String message)
             throws java.io.IOException {
         res.setStatus(status);
         res.setContentType(MediaType.APPLICATION_JSON_VALUE);
         res.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        res.getWriter().write(body);
+        BaseResponse<ErrorResponse> body = ResultUtils.error(errorCode,
+                new ErrorResponse(errorCode.name(), message, null), message);
+        res.getWriter().write(objectMapper.writeValueAsString(body));
     }
 }

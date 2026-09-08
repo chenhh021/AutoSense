@@ -4,8 +4,8 @@ import com.chh.autosense.ai.factory.DirectAnswerServiceFactory;
 import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 import com.chh.autosense.utils.LogContextUtils;
 import com.chh.autosense.utils.PromptInputEncoder;
+import com.chh.autosense.utils.AiCallLog;
 import dev.langchain4j.service.TokenStream;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +21,6 @@ import java.util.function.Consumer;
  */
 @Component
 @ConditionalOnProperty(name = "autosense.llm.mode", havingValue = "real")
-@Slf4j
 public class LangChain4jDirectAnswerer implements DirectAnswerer {
 
     private final DirectAnswerServiceFactory directAnswerServiceFactory;
@@ -36,45 +35,52 @@ public class LangChain4jDirectAnswerer implements DirectAnswerer {
     @Override
     public CompletionStage<String> answer(String question, ConversationHistorySnapshot history,
                                           Consumer<String> onToken) {
-        long started = System.nanoTime();
+        AiCallLog call = AiCallLog.start("direct-answer");
         Map<String, String> context = LogContextUtils.snapshot();
         CompletableFuture<String> result = new CompletableFuture<>();
         StringBuilder full = new StringBuilder();
         TokenStream stream;
         try {
-            stream = directAnswerServiceFactory.directAnswerService()
-                    .answer(encoder.history(history), encoder.text(question));
+            String historyJson = encoder.history(history);
+            String textJson = encoder.text(question);
+            call.phase(AiCallLog.Phase.SERVICE_SETUP);
+            var service = directAnswerServiceFactory.directAnswerService();
+            stream = service.answer(historyJson, textJson);
         } catch (RuntimeException e) {
-            log.warn("AI call failed: operation=direct-answer, reasonCode=STREAM_SETUP");
+            call.failed(e);
             result.completeExceptionally(e);
             return result;
         }
-        stream.onPartialResponse(token -> {
+        try {
+            call.phase(AiCallLog.Phase.STREAM_START);
+            stream.onPartialResponse(token -> {
                     if (result.isDone()) {
                         return;
                     }
                     try (var ignored = LogContextUtils.install(context)) {
+                        call.firstResponse();
                         full.append(token);
                         onToken.accept(token);
+                    } catch (RuntimeException e) {
+                        if (result.completeExceptionally(e)) call.failed(e, AiCallLog.Phase.TOKEN_CALLBACK);
                     }
                 })
                 .onCompleteResponse(response -> {
                     try (var ignored = LogContextUtils.install(context)) {
-                        log.info("AI call completed: operation=direct-answer, elapsedMs={}",
-                                (System.nanoTime() - started) / 1_000_000);
-                        result.complete(full.toString());
+                        if (result.complete(full.toString())) call.completed();
                     }
                 })
                 .onError(error -> {
                     try (var ignored = LogContextUtils.install(context)) {
-                        log.warn("AI call failed: operation=direct-answer, elapsedMs={}, errorType={}",
-                                (System.nanoTime() - started) / 1_000_000,
-                                error == null ? "unknown" : error.getClass().getSimpleName());
-                        result.completeExceptionally(error == null
-                                ? new IllegalStateException("Streaming answer failed") : error);
+                        Throwable failure = error == null ? new IllegalStateException("Streaming answer failed") : error;
+                        if (result.completeExceptionally(failure)) call.failed(failure, AiCallLog.Phase.STREAM_RECEIVE);
                     }
                 })
                 .start();
+            if (!result.isDone()) call.phase(AiCallLog.Phase.STREAM_RECEIVE);
+        } catch (RuntimeException e) {
+            if (result.completeExceptionally(e)) call.failed(e, AiCallLog.Phase.STREAM_START);
+        }
         return result;
     }
 }

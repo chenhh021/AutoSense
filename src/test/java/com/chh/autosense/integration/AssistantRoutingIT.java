@@ -33,11 +33,11 @@ class AssistantRoutingIT extends AbstractIntegrationIT {
         var registration = restTemplate.postForEntity(url("/api/v1/users/register"), Map.of(
                 "userAccount", account, "userPassword", "testPass123", "confirmPassword", "testPass123"), JsonNode.class);
         assertThat(registration.getStatusCode().value()).isEqualTo(201);
-        userId = registration.getBody().get("id").asLong();
+        userId = registration.getBody().get("data").get("id").asLong();
         var login = restTemplate.postForEntity(url("/api/v1/users/login"), Map.of(
                 "userAccount", account, "userPassword", "testPass123"), JsonNode.class);
         assertThat(login.getStatusCode().value()).isEqualTo(200);
-        token = login.getBody().get("token").asText();
+        token = login.getBody().get("data").get("token").asText();
     }
 
     @Test void allFourRoutesReceiveAuthenticatedContextExactlyOnceAndNeverTouchDevices() {
@@ -80,6 +80,27 @@ class AssistantRoutingIT extends AbstractIntegrationIT {
         }
         assertThat(post("", Map.of("problem", "写一首诗"))).contains("event:conclusion");
         assertThat(recorder.calls).isEmpty();
+        verifyNoInteractions(deviceClient);
+    }
+
+    @Test void knowledgeFlagIsDeliveredPerRoundAndDeviceParameterQuestionUsesReadOnlyCapability() {
+        String response = post("", Map.of("problem", "什么是色温"));
+        var match = Pattern.compile("\"sessionId\":(\\d+)").matcher(response);
+        assertThat(match.find()).isTrue();
+        long sessionId = Long.parseLong(match.group(1));
+        assertThat(recorder.calls.getFirst().capability()).isEqualTo(AssistantCapability.KNOWLEDGE);
+        assertThat(recorder.calls.getFirst().requiresKnowledgeBase()).isFalse();
+        assertThat(post("/" + sessionId + "/messages", Map.of("content", "LA001型号最大功率是多少")))
+                .contains("event:conclusion").doesNotContain("event:error");
+        assertThat(recorder.calls.get(1).capability()).isEqualTo(AssistantCapability.KNOWLEDGE);
+        assertThat(recorder.calls.get(1).requiresKnowledgeBase()).isTrue();
+        assertThat(post("/" + sessionId + "/messages", Map.of("content", "客厅灯当前亮度适合阅读吗")))
+                .contains("event:conclusion").doesNotContain("event:error");
+        assertThat(recorder.calls).hasSize(3);
+        assertThat(recorder.calls.get(2).capability()).isEqualTo(AssistantCapability.DEVICE_QUERY);
+        assertThat(recorder.calls.get(2).requiresKnowledgeBase()).isNull();
+        assertThat(recorder.calls.get(2).round()).isEqualTo(3);
+        assertThat(recorder.calls.get(2).history().messages()).hasSize(4);
         verifyNoInteractions(deviceClient);
     }
 

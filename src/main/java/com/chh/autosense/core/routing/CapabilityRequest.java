@@ -11,7 +11,8 @@ import java.util.Objects;
 /** Identity and processing boundaries come from the server. Confirmation is only input intent. */
 public record CapabilityRequest(AuthUser user, long sessionId, long reportId, int round, long messageId,
         String content, Boolean confirmRepair, ConversationHistorySnapshot history, LocalDateTime deadline,
-        AssistantCapability capability, DiagnosisMode diagnosisMode, String targetHint, SessionStatus waitingState) {
+        AssistantCapability capability, DiagnosisMode diagnosisMode, String targetHint, SessionStatus waitingState,
+        Boolean requiresKnowledgeBase) {
     public CapabilityRequest {
         Objects.requireNonNull(user); Objects.requireNonNull(history); Objects.requireNonNull(capability);
         if (history.sessionId() != sessionId || history.beforeMessageId() != messageId) {

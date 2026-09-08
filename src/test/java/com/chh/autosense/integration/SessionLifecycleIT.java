@@ -53,7 +53,7 @@ class SessionLifecycleIT extends AbstractIntegrationIT {
                 "userPassword", "testPass123", "confirmPassword", "testPass123"), JsonNode.class);
         ResponseEntity<JsonNode> login = restTemplate.postForEntity(url("/api/v1/users/login"),
                 Map.of("userAccount", account, "userPassword", "testPass123"), JsonNode.class);
-        token = login.getBody().get("token").asText();
+        token = login.getBody().get("data").get("token").asText();
     }
 
     @Test
@@ -186,6 +186,89 @@ class SessionLifecycleIT extends AbstractIntegrationIT {
             Map<String, Object> row = jdbc.queryForMap(
                     "SELECT processing_message_id FROM repair_session WHERE id = ?", sessionId);
             assertThat(row.get("processing_message_id")).isNotNull();
+
+            blocking.complete(CapabilityResult.answer("约五年"));
+            assertThat(first.get(15, TimeUnit.SECONDS)).contains("event:conclusion");
+        }
+    }
+
+    // ---------- 删除会话 ----------
+
+    @Test
+    void 删除会话级联清除数据与上下文() {
+        String body = post("", Map.of("problem", "什么是智能灯泡"));
+        assertThat(body).contains("event:conclusion");
+        long sessionId = recorder.calls.get(0).sessionId();
+        // 预置会话上下文键,验证删除时一并清除
+        redis.opsForValue().set("autosense:session:v2:" + sessionId, "{}",
+                java.time.Duration.ofMinutes(5));
+
+        ResponseEntity<String> deleted = restTemplate.exchange(url("/api/v1/sessions/" + sessionId),
+                HttpMethod.DELETE, new HttpEntity<>(authHeaders(token)), String.class);
+        assertThat(deleted.getStatusCode().value()).isEqualTo(204);
+
+        // 详情/消息补查均 404;会话列表不再包含
+        ResponseEntity<JsonNode> gone = restTemplate.exchange(url("/api/v1/sessions/" + sessionId),
+                HttpMethod.GET, new HttpEntity<>(authHeaders(token)), JsonNode.class);
+        assertThat(gone.getStatusCode().value()).isEqualTo(404);
+        assertThat(gone.getBody().get("data").get("code").asText()).isEqualTo("SESSION_NOT_FOUND");
+        for (String table : new String[]{"chat_message", "problem_report",
+                "diagnostic_snapshot", "repair_action_log"}) {
+            Long rows = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM " + table + " WHERE session_id = ?", Long.class, sessionId);
+            assertThat(rows).as("%s 应级联清空", table).isZero();
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM repair_session WHERE id = ?",
+                Long.class, sessionId)).isZero();
+        assertThat(redis.hasKey("autosense:session:v2:" + sessionId)).isFalse();
+
+        // 重复删除 → 404,不假成功
+        ResponseEntity<JsonNode> again = restTemplate.exchange(url("/api/v1/sessions/" + sessionId),
+                HttpMethod.DELETE, new HttpEntity<>(authHeaders(token)), JsonNode.class);
+        assertThat(again.getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void 他人会话删除被拒且不删数据() {
+        String body = post("", Map.of("problem", "什么是智能灯泡"));
+        assertThat(body).contains("event:conclusion");
+        long sessionId = recorder.calls.get(0).sessionId();
+
+        String other = "it_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        restTemplate.postForEntity(url("/api/v1/users/register"), Map.of("userAccount", other,
+                "userPassword", "testPass123", "confirmPassword", "testPass123"), JsonNode.class);
+        String otherToken = restTemplate.postForEntity(url("/api/v1/users/login"),
+                Map.of("userAccount", other, "userPassword", "testPass123"),
+                JsonNode.class).getBody().get("data").get("token").asText();
+
+        ResponseEntity<JsonNode> denied = restTemplate.exchange(url("/api/v1/sessions/" + sessionId),
+                HttpMethod.DELETE, new HttpEntity<>(authHeaders(otherToken)), JsonNode.class);
+        assertThat(denied.getStatusCode().value()).isEqualTo(403);
+        assertThat(denied.getBody().get("data").get("code").asText()).isEqualTo("DEVICE_FORBIDDEN");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM repair_session WHERE id = ?",
+                Long.class, sessionId)).isEqualTo(1);
+    }
+
+    @Test
+    void 处理中的会话删除被拒绝且数据保留() throws Exception {
+        CompletableFuture<CapabilityResult> blocking = new CompletableFuture<>();
+        CountDownLatch entered = new CountDownLatch(1);
+        recorder.behavior.put(AssistantCapability.KNOWLEDGE, request -> {
+            entered.countDown();
+            return blocking;
+        });
+
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            Future<String> first = executor.submit(() -> post("", Map.of("problem", "什么是智能灯泡")));
+            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+            long sessionId = recorder.calls.get(0).sessionId();
+
+            ResponseEntity<JsonNode> busy = restTemplate.exchange(url("/api/v1/sessions/" + sessionId),
+                    HttpMethod.DELETE, new HttpEntity<>(authHeaders(token)), JsonNode.class);
+            assertThat(busy.getStatusCode().value()).isEqualTo(409);
+            assertThat(busy.getBody().get("data").get("code").asText()).isEqualTo("SESSION_BUSY");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM repair_session WHERE id = ?",
+                    Long.class, sessionId)).isEqualTo(1);
 
             blocking.complete(CapabilityResult.answer("约五年"));
             assertThat(first.get(15, TimeUnit.SECONDS)).contains("event:conclusion");

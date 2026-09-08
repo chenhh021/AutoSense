@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 public class RoutingDecisionValidator {
     public static RoutingDecision clarification() {
         return new RoutingDecision(RoutingOutcome.CLARIFY, null, null, null,
-                "请说明您希望咨询知识、查询设备、诊断故障，还是控制设备；本轮先处理一项。 ");
+                "您好，请问我有什么可以帮您的吗？", null);
     }
 
     public RoutingDecision validate(RoutingDecision candidate) {
@@ -19,19 +19,22 @@ public class RoutingDecisionValidator {
         if (valid && candidate.outcome() == RoutingOutcome.SINGLE) {
             valid = candidate.intent() != null && candidate.clarifyQuestion() == null
                     && (candidate.intent() == CapabilityIntent.DIAGNOSIS
-                    ? candidate.diagnosisMode() != null : candidate.diagnosisMode() == null);
+                    ? candidate.diagnosisMode() != null : candidate.diagnosisMode() == null)
+                    && (candidate.intent() == CapabilityIntent.KNOWLEDGE
+                    ? candidate.requiresKnowledgeBase() != null : candidate.requiresKnowledgeBase() == null);
         } else if (valid) {
-            valid = candidate.intent() == null && candidate.diagnosisMode() == null;
+            valid = candidate.intent() == null && candidate.diagnosisMode() == null
+                    && candidate.requiresKnowledgeBase() == null;
         }
         if (!valid) {
             log.warn("Routing clarification required: reasonCode=INVALID_OUTPUT");
             return clarification();
         }
-        log.info("Intent routed: outcome={}, capability={}, diagnosisMode={}", candidate.outcome(),
-                candidate.intent(), candidate.diagnosisMode());
+        log.info("Intent routed: outcome={}, capability={}, diagnosisMode={}, requiresKnowledgeBase={}", candidate.outcome(),
+                candidate.intent(), candidate.diagnosisMode(), candidate.requiresKnowledgeBase());
         if (candidate.outcome() == RoutingOutcome.CLARIFY || candidate.outcome() == RoutingOutcome.COMPOSITE) {
             // A model's free-form clarification can expose internal material; use the public fixed question.
-            return new RoutingDecision(candidate.outcome(), null, null, null, clarification().clarifyQuestion());
+            return new RoutingDecision(candidate.outcome(), null, null, null, clarification().clarifyQuestion(), null);
         }
         return candidate;
     }

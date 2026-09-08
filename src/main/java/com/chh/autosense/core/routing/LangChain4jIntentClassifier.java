@@ -7,6 +7,7 @@ import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 import com.chh.autosense.exception.ApiException;
 import com.chh.autosense.exception.ErrorCode;
 import com.chh.autosense.utils.PromptInputEncoder;
+import com.chh.autosense.utils.AiCallLog;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -32,24 +33,24 @@ public class LangChain4jIntentClassifier implements IntentClassifier {
 
     @Override
     public RoutingDecision classify(String text, ConversationHistorySnapshot history) {
-        long started = System.nanoTime();
+        AiCallLog call = AiCallLog.start("intent-classify");
         try {
-            RoutingDecision decision = intentRouterServiceFactory.intentRouterService()
-                    .classify(encoder.history(history), encoder.text(text));
-            log.info("AI call completed: operation=intent-classify, elapsedMs={}", elapsed(started));
+            String historyJson = encoder.history(history);
+            String textJson = encoder.text(text);
+            call.phase(AiCallLog.Phase.SERVICE_SETUP);
+            var service = intentRouterServiceFactory.intentRouterService();
+            call.phase(AiCallLog.Phase.MODEL_INVOCATION);
+            RoutingDecision decision = service.classify(historyJson, textJson);
+            call.completed();
             return decision;
         } catch (RuntimeException e) {
+            call.failed(e);
             if (AiFailureMapping.isStructureFailure(e) && !AiFailureMapping.isTransportFailure(e)) {
                 log.warn("Routing clarification required: reasonCode=MODEL_OUTPUT_UNPARSEABLE");
                 return null;
             }
-            log.warn("AI call failed: operation=intent-classify, elapsedMs={}, errorType={}",
-                    elapsed(started), e.getClass().getSimpleName());
             throw new ApiException(ErrorCode.AI_SERVICE_UNAVAILABLE, "助手服务暂时不可用，请稍后再试。");
         }
     }
 
-    private static long elapsed(long startedNanos) {
-        return (System.nanoTime() - startedNanos) / 1_000_000;
-    }
 }

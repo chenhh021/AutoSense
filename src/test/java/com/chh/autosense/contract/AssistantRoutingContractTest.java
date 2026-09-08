@@ -27,14 +27,15 @@ class AssistantRoutingContractTest {
     @Test void eachSingleCapabilityIsMappedExplicitlyAndOnlyItsHandlerReceivesTheRequest() {
         for (CapabilityIntent intent : CapabilityIntent.values()) {
             RoutingDecision decision = validator.validate(new RoutingDecision(RoutingOutcome.SINGLE, intent,
-                    intent == CapabilityIntent.DIAGNOSIS ? DiagnosisMode.DEFAULT : null, "unverified target", null));
+                    intent == CapabilityIntent.DIAGNOSIS ? DiagnosisMode.DEFAULT : null, "unverified target", null,
+                    intent == CapabilityIntent.KNOWLEDGE ? Boolean.TRUE : null));
             AssistantCapability capability = validator.capability(decision);
             AtomicInteger calls = new AtomicInteger();
             AssistantCapabilityHandler handler = handler(capability, calls);
             var dispatcher = new CapabilityDispatcher(List.of(handler));
             var request = new CapabilityRequest(new AuthUser(7L), 10, 11, 1, 20, "question", true,
                     empty, LocalDateTime.now().plusMinutes(2), capability, decision.diagnosisMode(),
-                    decision.targetHint(), SessionStatus.ROUTING);
+                    decision.targetHint(), SessionStatus.ROUTING, decision.requiresKnowledgeBase());
             assertThat(dispatcher.dispatch(request, token -> { }).toCompletableFuture().join().text()).isEqualTo("test receiver");
             assertThat(calls).hasValue(1);
             assertThat(request.user().userId()).isEqualTo(7);
@@ -44,11 +45,14 @@ class AssistantRoutingContractTest {
 
     @Test void invalidOrContradictoryShapesOnlyClarify() {
         for (RoutingDecision input : new RoutingDecision[]{null,
-                new RoutingDecision(null, null, null, null, null),
-                new RoutingDecision(RoutingOutcome.SINGLE, null, null, null, null),
-                new RoutingDecision(RoutingOutcome.CLARIFY, CapabilityIntent.CONTROL, null, null, null),
-                new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.KNOWLEDGE, DiagnosisMode.AFTERSALES, null, null),
-                new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.DIAGNOSIS, null, null, null)}) {
+                new RoutingDecision(null, null, null, null, null, null),
+                new RoutingDecision(RoutingOutcome.SINGLE, null, null, null, null, null),
+                new RoutingDecision(RoutingOutcome.CLARIFY, CapabilityIntent.CONTROL, null, null, null, null),
+                new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.KNOWLEDGE, DiagnosisMode.AFTERSALES, null, null, true),
+                new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.DIAGNOSIS, null, null, null, null),
+                new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.KNOWLEDGE, null, null, null, null),
+                new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.DEVICE_QUERY, null, null, null, false),
+                new RoutingDecision(RoutingOutcome.CLARIFY, null, null, null, null, true)}) {
             var result = validator.validate(input);
             assertThat(result.outcome()).isEqualTo(RoutingOutcome.CLARIFY);
             assertThat(result.intent()).isNull();
@@ -75,9 +79,34 @@ class AssistantRoutingContractTest {
         assertThatThrownBy(() -> new CapabilityDispatcher(List.of(handler, handler))).isInstanceOf(IllegalStateException.class);
         var dispatcher = new CapabilityDispatcher(List.of());
         var request = new CapabilityRequest(new AuthUser(7L), 10, 11, 1, 20, "control", true,
-                empty, LocalDateTime.now().plusMinutes(2), AssistantCapability.CONTROL, null, "target", SessionStatus.ROUTING);
+                empty, LocalDateTime.now().plusMinutes(2), AssistantCapability.CONTROL, null, "target", SessionStatus.ROUTING, null);
         assertThatThrownBy(() -> dispatcher.dispatch(request, token -> { }))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CAPABILITY_NOT_AVAILABLE));
+    }
+
+    @Test void knowledgeRetrievalAndDeviceParameterQuestionsHaveDistinctRoutes() {
+        var classifier = new MockIntentClassifier();
+        for (String question : List.of("什么是色温", "空调的制冷原理是什么", "普通LED灯的寿命多久")) {
+            var decision = validator.validate(classifier.classify(question, empty));
+            assertThat(decision.intent()).isEqualTo(CapabilityIntent.KNOWLEDGE);
+            assertThat(decision.requiresKnowledgeBase()).isFalse();
+        }
+        for (String question : List.of("LA001型号最大功率是多少", "LB001支持调色吗", "说明书中的配网步骤", "智能灯怎么使用")) {
+            var decision = validator.validate(classifier.classify(question, empty));
+            assertThat(decision.intent()).isEqualTo(CapabilityIntent.KNOWLEDGE);
+            assertThat(decision.requiresKnowledgeBase()).isTrue();
+        }
+        for (String question : List.of("客厅灯当前亮度适合阅读吗", "根据我的灯的功率估算每天使用八小时的耗电量",
+                "我的灯支持调色吗", "卧室灯的色温适合睡前使用吗", "我有哪些设备")) {
+            var decision = validator.validate(classifier.classify(question, empty));
+            assertThat(decision.intent()).as(question).isEqualTo(CapabilityIntent.DEVICE_QUERY);
+            assertThat(decision.requiresKnowledgeBase()).isNull();
+        }
+        var prior = new ConversationHistorySnapshot(10, 20, List.of(
+                new ConversationHistorySnapshot.Entry(18, "USER", "查询客厅灯的参数"),
+                new ConversationHistorySnapshot.Entry(19, "ASSISTANT", "已读取参数")));
+        assertThat(classifier.classify("它的亮度适合阅读吗", prior).intent()).isEqualTo(CapabilityIntent.DEVICE_QUERY);
+        assertThat(classifier.classify("将客厅灯色温调到3000K", empty).intent()).isEqualTo(CapabilityIntent.CONTROL);
     }
 
     private AssistantCapabilityHandler handler(AssistantCapability capability, AtomicInteger calls) {

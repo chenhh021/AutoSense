@@ -220,3 +220,9 @@ T004的本地配置验证、T010的历史边界、T014的分类验收和T028的�
 ## Complexity Tracking
 
 无需要豁免的章程违反项。新增两列用于公共异步写入隔离，避免新建轮次/任务表；业务与AI分类枚举分开用于明确可信边界；能力接口用于四项独立业务接入，均由当前规格直接需要。
+
+## 2026-09-09 路由扩展实施设计
+
+在 RoutingDecision 和 CapabilityRequest 中追加可空 Boolean requiresKnowledgeBase，真实 AI Service 依靠资源提示词输出，RoutingDecisionValidator 校验仅 KNOWLEDGE 必填，其余必须为空。SessionOrchestrator 透传已校验字段，日志仅增加布尔值。同步调整显式 mock 的确定性分类：常识、型号知识、本人设备参数问答各有验收样例。已有业务等待续接不重新路由，该字段为空，由原处理器恢复自己的上下文。
+
+修改 intent-router.txt 明确静态产品知识与本人设备参数问答的边界；保持模型不持有设备授权、公共 API/数据库结构不变。通过契约测试、真实 SDK 协议替身和隔离 MySQL/Redis 的路由集成测试验证字段解析、错误组合拒绝、分发透传及路由零设备调用。003/004 同步接入要求，本次不提前实现其业务处理器。

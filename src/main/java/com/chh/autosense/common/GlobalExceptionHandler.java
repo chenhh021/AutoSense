@@ -3,33 +3,39 @@ package com.chh.autosense.common;
 import com.chh.autosense.exception.ApiException;
 import com.chh.autosense.exception.ErrorCode;
 import com.chh.autosense.utils.LogSanitizer;
+import com.chh.autosense.utils.ResultUtils;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * 全局异常处理(T010):统一错误体 {code, message, sessionId}。
+ * 全局异常处理(T010):统一错误输出为 BaseResponse&lt;ErrorResponse&gt;,外层 code 为内部
+ * 错误码,data 携带稳定错误语义(错误码名、可读消息、关联会话)。
+ * HTTP 状态仍按错误码设置(response.setStatus),仅去掉 ResponseEntity 包装。
  */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
-    public ResponseEntity<ErrorResponse> handleApi(ApiException e) {
+    public BaseResponse<ErrorResponse> handleApi(ApiException e, HttpServletResponse response) {
         if (e.errorCode().httpStatus().is5xxServerError()) {
             log.error("Request failed: errorCode={}", e.errorCode(), LogSanitizer.diagnostic(e));
         } else {
             log.warn("Request rejected: errorCode={}", e.errorCode());
         }
-        return ResponseEntity.status(e.errorCode().httpStatus())
-                .body(new ErrorResponse(e.errorCode().name(), e.getMessage(), e.sessionId()));
+        response.setStatus(e.errorCode().httpStatus().value());
+        return ResultUtils.error(e.errorCode(),
+                new ErrorResponse(e.errorCode().name(), e.getMessage(), e.sessionId()),
+                e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException e) {
+    public BaseResponse<ErrorResponse> handleValidation(MethodArgumentNotValidException e,
+                                                        HttpServletResponse response) {
         e.getBindingResult().getFieldErrors().stream().limit(8).forEach(field ->
                 log.warn("Request validation failed: field={}, rule={}",
                         LogSanitizer.label(field.getField()), LogSanitizer.label(field.getCode())));
@@ -37,21 +43,28 @@ public class GlobalExceptionHandler {
                 .findFirst()
                 .map(f -> f.getField() + " " + f.getDefaultMessage())
                 .orElse("请求参数不合法");
-        return ResponseEntity.status(ErrorCode.BAD_REQUEST.httpStatus())
-                .body(new ErrorResponse(ErrorCode.BAD_REQUEST.name(), message, null));
+        return badRequest(message, response);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException e) {
+    public BaseResponse<ErrorResponse> handleUnreadable(HttpMessageNotReadableException e,
+                                                        HttpServletResponse response) {
         log.warn("Request validation failed: errorCode=BAD_REQUEST, reasonCode=UNREADABLE_BODY");
-        return ResponseEntity.status(ErrorCode.BAD_REQUEST.httpStatus())
-                .body(new ErrorResponse(ErrorCode.BAD_REQUEST.name(), "请求体格式不合法", null));
+        return badRequest("请求体格式不合法", response);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
+    public BaseResponse<ErrorResponse> handleUnexpected(Exception e, HttpServletResponse response) {
         log.error("Request failed: errorCode=INTERNAL_ERROR", LogSanitizer.diagnostic(e));
-        return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.httpStatus())
-                .body(new ErrorResponse(ErrorCode.INTERNAL_ERROR.name(), "服务内部错误", null));
+        response.setStatus(ErrorCode.INTERNAL_ERROR.httpStatus().value());
+        return ResultUtils.error(ErrorCode.INTERNAL_ERROR,
+                new ErrorResponse(ErrorCode.INTERNAL_ERROR.name(), "服务内部错误", null),
+                "服务内部错误");
+    }
+
+    private static BaseResponse<ErrorResponse> badRequest(String message, HttpServletResponse response) {
+        response.setStatus(ErrorCode.BAD_REQUEST.httpStatus().value());
+        return ResultUtils.error(ErrorCode.BAD_REQUEST,
+                new ErrorResponse(ErrorCode.BAD_REQUEST.name(), message, null), message);
     }
 }

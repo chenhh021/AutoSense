@@ -3,7 +3,7 @@ package com.chh.autosense.core.session;
 import com.chh.autosense.domain.message.SseEvent;
 import com.chh.autosense.domain.message.SseEventStream;
 import com.chh.autosense.core.aftersales.AfterSalesLocation;
-import com.chh.autosense.core.device.DeviceAdapterRegistry;
+import com.chh.autosense.service.device.DeviceAdapterRegistryService;
 import com.chh.autosense.core.device.rule.FaultRuleEngine;
 import com.chh.autosense.core.device.rule.FaultVerdict;
 import com.chh.autosense.core.device.spi.DeviceAdapter;
@@ -48,7 +48,7 @@ public class RepairExecutionRunner {
     private final DiagnosticSnapshotMapper snapshotMapper;
     private final ProblemReportMapper reportMapper;
     private final ChatMessageMapper messageMapper;
-    private final DeviceAdapterRegistry adapterRegistry;
+    private final DeviceAdapterRegistryService adapterRegistry;
     private final RepairKnowledgeService knowledgeService;
     private final RepairExecutor repairExecutor;
     private final FaultRuleEngine faultRuleEngine;
@@ -61,7 +61,7 @@ public class RepairExecutionRunner {
                                  DiagnosticSnapshotMapper snapshotMapper,
                                  ProblemReportMapper reportMapper,
                                  ChatMessageMapper messageMapper,
-                                 DeviceAdapterRegistry adapterRegistry,
+                                 DeviceAdapterRegistryService adapterRegistry,
                                  RepairKnowledgeService knowledgeService,
                                  RepairExecutor repairExecutor,
                                  FaultRuleEngine faultRuleEngine,

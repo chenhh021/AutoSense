@@ -229,7 +229,7 @@ class TokenRevocationIT extends AbstractIntegrationIT {
                 "userAccount", account, "userPassword", password));
         assertThat(resp.getStatusCode().value()).as("登录 %s: %s", account, resp.getBody())
                 .isEqualTo(200);
-        return resp.getBody().get("token").asText();
+        return resp.getBody().get("data").get("token").asText();
     }
 
     private Long meId(String token) {

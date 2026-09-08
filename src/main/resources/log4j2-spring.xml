@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
     <Properties>
-        <Property name="defaultConsolePattern">%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t requestId=%X{requestId} userId=%X{userId} sessionId=%X{sessionId} messageId=%X{messageId} round=%X{round} deviceId=%X{deviceId} %m%n%ex</Property>
+        <Property name="defaultConsolePattern">%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t %notEmpty{[requestId=%X{requestId}, userId=%X{userId}, sessionId=%X{sessionId}, messageId=%X{messageId}, round=%X{round}, deviceId=%X{deviceId}] }%m%n%ex</Property>
         <Property name="consolePattern">${sys:CONSOLE_LOG_PATTERN:-${defaultConsolePattern}}</Property>
     </Properties>
     <Appenders>

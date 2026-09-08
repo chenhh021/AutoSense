@@ -3,8 +3,8 @@ package com.chh.autosense.contract;
 import com.chh.autosense.exception.ApiException;
 import com.chh.autosense.exception.ErrorCode;
 import com.chh.autosense.controller.DeviceController;
-import com.chh.autosense.core.device.DeviceAdapterRegistry;
-import com.chh.autosense.core.device.DeviceRegistryService;
+import com.chh.autosense.service.device.DeviceAdapterRegistryService;
+import com.chh.autosense.service.device.DeviceRegistryService;
 import com.chh.autosense.domain.entity.Device;
 import com.chh.autosense.core.security.AuthUser;
 import com.chh.autosense.core.security.BearerTokenAuthFilter;
@@ -43,7 +43,7 @@ class DeviceApiContractTest {
     private DeviceRegistryService registryService;
 
     @MockitoBean
-    private DeviceAdapterRegistry adapterRegistry;
+    private DeviceAdapterRegistryService adapterRegistry;
 
     @MockitoBean
     private UserTokenResolver tokenResolver;
@@ -57,7 +57,8 @@ class DeviceApiContractTest {
     void 未认证返回401() throws Exception {
         mockMvc.perform(get("/api/v1/devices"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.data.code").value("UNAUTHORIZED"));
     }
 
     @Test
@@ -73,19 +74,20 @@ class DeviceApiContractTest {
                                 {"sn":"LITE123456789","name":"客厅灯"}
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(55))
-                .andExpect(jsonPath("$.name").value("客厅灯"))
-                .andExpect(jsonPath("$.simulatorName").value("sim-la001"))
-                .andExpect(jsonPath("$.sn").value("LITE123456789"))
-                .andExpect(jsonPath("$.deviceTypeCode").value("LITE"))
-                .andExpect(jsonPath("$.deviceTypeId").value(1))
-                .andExpect(jsonPath("$.deviceModelCode").value("LA001"))
-                .andExpect(jsonPath("$.deviceModelId").value(1))
-                .andExpect(jsonPath("$.supported").value(true))
-                .andExpect(jsonPath("$.online").value(true))
-                .andExpect(jsonPath("$.state").doesNotExist())
-                .andExpect(jsonPath("$.runningStatus").doesNotExist())
-                .andExpect(jsonPath("$.createdAt").doesNotExist());
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(55))
+                .andExpect(jsonPath("$.data.name").value("客厅灯"))
+                .andExpect(jsonPath("$.data.simulatorName").value("sim-la001"))
+                .andExpect(jsonPath("$.data.sn").value("LITE123456789"))
+                .andExpect(jsonPath("$.data.deviceTypeCode").value("LITE"))
+                .andExpect(jsonPath("$.data.deviceTypeId").value(1))
+                .andExpect(jsonPath("$.data.deviceModelCode").value("LA001"))
+                .andExpect(jsonPath("$.data.deviceModelId").value(1))
+                .andExpect(jsonPath("$.data.supported").value(true))
+                .andExpect(jsonPath("$.data.online").value(true))
+                .andExpect(jsonPath("$.data.state").doesNotExist())
+                .andExpect(jsonPath("$.data.runningStatus").doesNotExist())
+                .andExpect(jsonPath("$.data.createdAt").doesNotExist());
     }
 
     @Test
@@ -99,7 +101,7 @@ class DeviceApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sn\":\"CAMR123456789\",\"name\":\"门口设备\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.supported").value(false));
+                .andExpect(jsonPath("$.data.supported").value(false));
     }
 
     @Test
@@ -134,7 +136,8 @@ class DeviceApiContractTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(json))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+                    .andExpect(jsonPath("$.code").value(40000))
+                    .andExpect(jsonPath("$.data.code").value("BAD_REQUEST"));
         }
         verify(registryService, never()).register(anyLong(), anyString(), anyString());
     }
@@ -157,8 +160,9 @@ class DeviceApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sn\":\"" + sn + "\",\"name\":\"灯\"}"))
                 .andExpect(status().is(status))
-                .andExpect(jsonPath("$.code").value(code.name()))
-                .andExpect(jsonPath("$.message").value(message));
+                .andExpect(jsonPath("$.code").value(code.getCode()))
+                .andExpect(jsonPath("$.data.code").value(code.name()))
+                .andExpect(jsonPath("$.data.message").value(message));
     }
 
     private Device device(String sn, String name, String simulatorName,

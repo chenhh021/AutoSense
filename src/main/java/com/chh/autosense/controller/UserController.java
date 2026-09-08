@@ -1,6 +1,7 @@
 package com.chh.autosense.controller;
 
-import com.chh.autosense.common.ErrorResponse;
+import com.chh.autosense.common.BaseResponse;
+import com.chh.autosense.utils.ResultUtils;
 import com.chh.autosense.domain.dto.LoginRequest;
 import com.chh.autosense.domain.dto.LoginResponse;
 import com.chh.autosense.domain.dto.RegisterRequest;
@@ -35,14 +36,6 @@ import org.springframework.web.bind.annotation.RestController;
  * 用户账号 API(FR-022~025,contracts/user-api.md §1~§4)。
  * 注册/登录匿名可达(SecurityConfig 放行);me/logout 需 Bearer 令牌。
  */
-@Tag(name = "UserController", description = "提供用户注册、登录、查询当前登录用户和注销能力")
-@SecurityScheme(
-        name = "bearerAuth",
-        description = "登录接口返回的不透明访问令牌，调用时使用 Authorization: Bearer {token}",
-        type = SecuritySchemeType.HTTP,
-        scheme = "bearer",
-        bearerFormat = "Opaque Token"
-)
 @RestController
 @RequestMapping("/api/v1/users")
 public class UserController {
@@ -57,104 +50,28 @@ public class UserController {
      * 注册普通用户账号。
      *
      * @param request 注册账号、密码和确认密码
-     * @return 已创建的脱敏用户信息，不包含密码
+     * @return 包装响应，业务数据为已创建的脱敏用户信息，不包含密码
      */
-    @Operation(
-            summary = "注册用户",
-            description = "创建普通用户账号。账号须为 4~32 位字母、数字或下划线；"
-                    + "密码须为 8~64 位且同时包含字母和数字；注册角色固定为 user。"
-    )
-    @ApiResponses({
-            @ApiResponse(
-                    responseCode = "201",
-                    description = "注册成功",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = UserView.class))
-            ),
-            @ApiResponse(
-                    responseCode = "400",
-                    description = "请求参数缺失、格式不合法或两次密码不一致",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @ApiResponse(
-                    responseCode = "409",
-                    description = "账号已存在（错误码：ACCOUNT_EXISTS）",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @ApiResponse(
-                    responseCode = "500",
-                    description = "服务内部错误",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            )
-    })
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public UserView register(
-            @Valid
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "用户注册信息",
-                    required = true,
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = RegisterRequest.class))
-            )
-            @RequestBody RegisterRequest request) {
-        return UserView.of(userService.register(
-                request.userAccount(), request.userPassword(), request.confirmPassword()));
+    public BaseResponse<UserView> register(
+            @Valid @RequestBody RegisterRequest request) {
+        return ResultUtils.success(UserView.of(userService.register(
+                request.userAccount(), request.userPassword(), request.confirmPassword())));
     }
 
     /**
      * 使用账号和密码登录。
      *
      * @param request 登录账号和密码
-     * @return Bearer 访问令牌及当前用户的脱敏信息
+     * @return 包装响应，业务数据为 Bearer 访问令牌及当前用户的脱敏信息
      */
-    @Operation(
-            summary = "用户登录",
-            description = "校验账号和密码并签发不透明 Bearer 访问令牌。账号不存在、密码错误或账号已禁用时，"
-                    + "统一返回 401，避免泄露具体失败原因。"
-    )
-    @ApiResponses({
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "登录成功",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = LoginResponse.class))
-            ),
-            @ApiResponse(
-                    responseCode = "400",
-                    description = "账号或密码字段为空",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @ApiResponse(
-                    responseCode = "401",
-                    description = "账号或密码错误，或账号已禁用（错误码：UNAUTHORIZED）",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @ApiResponse(
-                    responseCode = "500",
-                    description = "服务内部错误",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            )
-    })
     @PostMapping("/login")
-    public LoginResponse login(
-            @Valid
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "用户登录凭据",
-                    required = true,
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = LoginRequest.class))
-            )
-            @RequestBody LoginRequest request) {
+    public BaseResponse<LoginResponse> login(
+            @Valid @RequestBody LoginRequest request) {
         UserService.LoginResult result = userService.login(
                 request.userAccount(), request.userPassword());
-        return LoginResponse.of(result.token(), result.user());
+        return ResultUtils.success(LoginResponse.of(result.token(), result.user()));
     }
 
     /**
@@ -163,31 +80,6 @@ public class UserController {
      * @param authUser Spring Security 注入的当前认证用户
      * @return 当前登录用户的脱敏信息，不包含密码
      */
-    @Operation(
-            summary = "获取当前用户",
-            description = "根据 Bearer 访问令牌查询当前登录用户，返回结果不包含密码。",
-            security = @SecurityRequirement(name = "bearerAuth")
-    )
-    @ApiResponses({
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "查询成功",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = UserView.class))
-            ),
-            @ApiResponse(
-                    responseCode = "401",
-                    description = "未提供令牌、令牌格式错误、令牌无效或令牌已过期（错误码：UNAUTHORIZED）",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @ApiResponse(
-                    responseCode = "500",
-                    description = "服务内部错误",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            )
-    })
     @GetMapping("/me")
     public UserView me(
             @Parameter(hidden = true)
@@ -201,26 +93,6 @@ public class UserController {
      *
      * @param authorization Bearer 认证请求头
      */
-    @Operation(
-            summary = "用户注销",
-            description = "删除当前会话的访问令牌。注销成功后，该令牌立即失效，接口不返回响应体。",
-            security = @SecurityRequirement(name = "bearerAuth")
-    )
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "注销成功，响应体为空"),
-            @ApiResponse(
-                    responseCode = "401",
-                    description = "未提供令牌、令牌格式错误、令牌无效或令牌已过期（错误码：UNAUTHORIZED）",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @ApiResponse(
-                    responseCode = "500",
-                    description = "服务内部错误",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ErrorResponse.class))
-            )
-    })
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(

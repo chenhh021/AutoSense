@@ -2,7 +2,7 @@ package com.chh.autosense.device;
 
 import com.chh.autosense.exception.ApiException;
 import com.chh.autosense.exception.ErrorCode;
-import com.chh.autosense.core.device.DeviceRegistryService;
+import com.chh.autosense.service.device.DeviceRegistryService;
 import com.chh.autosense.core.device.client.DeviceServiceClient;
 import com.chh.autosense.core.device.client.DeviceServiceClient.DeviceLookupResult;
 import com.chh.autosense.core.device.client.DeviceServiceClient.DeviceServiceUnavailableException;

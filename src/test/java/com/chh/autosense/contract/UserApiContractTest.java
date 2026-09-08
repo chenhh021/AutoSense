@@ -136,10 +136,11 @@ class UserApiContractTest {
                         .content("{\"userAccount\":\"zhangsan\",\"userPassword\":\"pass1234\","
                                 + "\"confirmPassword\":\"pass1234\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(12))
-                .andExpect(jsonPath("$.userAccount").value("zhangsan"))
-                .andExpect(jsonPath("$.userRole").value("user"))
-                .andExpect(jsonPath("$.userPassword").doesNotExist());
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(12))
+                .andExpect(jsonPath("$.data.userAccount").value("zhangsan"))
+                .andExpect(jsonPath("$.data.userRole").value("user"))
+                .andExpect(jsonPath("$.data.userPassword").doesNotExist());
     }
 
     @Test
@@ -152,7 +153,7 @@ class UserApiContractTest {
                         .content("{\"userAccount\":\"zhangsan\",\"userPassword\":\"pass1234\","
                                 + "\"confirmPassword\":\"pass1234\",\"userRole\":\"admin\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.userRole").value("user"));
+                .andExpect(jsonPath("$.data.userRole").value("user"));
     }
 
     @Test
@@ -165,7 +166,8 @@ class UserApiContractTest {
                         .content("{\"userAccount\":\"zhangsan\",\"userPassword\":\"pass1234\","
                                 + "\"confirmPassword\":\"pass9999\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+                .andExpect(jsonPath("$.code").value(40000))
+                .andExpect(jsonPath("$.data.code").value("BAD_REQUEST"));
     }
 
     // ---------- 密码 UTF-8 字节边界(T030,BCrypt 72 字节上限) ----------
@@ -182,7 +184,7 @@ class UserApiContractTest {
                         .content("{\"userAccount\":\"zhangsan72\",\"userPassword\":\"" + exact72
                                 + "\",\"confirmPassword\":\"" + exact72 + "\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.userPassword").doesNotExist());
+                .andExpect(jsonPath("$.data.userPassword").doesNotExist());
     }
 
     @Test
@@ -200,7 +202,8 @@ class UserApiContractTest {
                             .content("{\"userAccount\":\"zhangsan73\",\"userPassword\":\"" + over72
                                     + "\",\"confirmPassword\":\"" + over72 + "\"}"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+                    .andExpect(jsonPath("$.code").value(40000))
+                    .andExpect(jsonPath("$.data.code").value("BAD_REQUEST"))
                     .andReturn().getResponse().getContentAsString();
 
             assertThat(body).doesNotContain(over72);
@@ -218,7 +221,8 @@ class UserApiContractTest {
                         .content("{\"userAccount\":\"zhangsan\",\"userPassword\":\"pass1234\","
                                 + "\"confirmPassword\":\"pass1234\"}"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("ACCOUNT_EXISTS"));
+                .andExpect(jsonPath("$.code").value(40007))
+                .andExpect(jsonPath("$.data.code").value("ACCOUNT_EXISTS"));
     }
 
     @Test
@@ -227,7 +231,8 @@ class UserApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"userAccount\":\"zhangsan\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+                .andExpect(jsonPath("$.code").value(40000))
+                .andExpect(jsonPath("$.data.code").value("BAD_REQUEST"));
     }
 
     // ---------- 登录 ----------
@@ -241,10 +246,11 @@ class UserApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"userAccount\":\"zhangsan\",\"userPassword\":\"pass1234\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").value("tok-abc"))
-                .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.user.userAccount").value("zhangsan"))
-                .andExpect(jsonPath("$.user.userPassword").doesNotExist());
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.token").value("tok-abc"))
+                .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.data.user.userAccount").value("zhangsan"))
+                .andExpect(jsonPath("$.data.user.userPassword").doesNotExist());
     }
 
     @Test
@@ -256,8 +262,9 @@ class UserApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"userAccount\":\"zhangsan\",\"userPassword\":\"wrong123\"}"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
-                .andExpect(jsonPath("$.message").value("账号或密码错误"));
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.data.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.data.message").value("账号或密码错误"));
     }
 
     // ---------- me / logout ----------
@@ -278,7 +285,8 @@ class UserApiContractTest {
     void 未带令牌访问me_401() throws Exception {
         mockMvc.perform(get("/api/v1/users/me"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.data.code").value("UNAUTHORIZED"));
     }
 
     @Test
@@ -296,7 +304,8 @@ class UserApiContractTest {
         mockMvc.perform(get("/api/v1/admin/users")
                         .header("Authorization", "Bearer user-token"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(jsonPath("$.code").value(40002))
+                .andExpect(jsonPath("$.data.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -341,7 +350,8 @@ class UserApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"disabled\":true}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+                .andExpect(jsonPath("$.code").value(40000))
+                .andExpect(jsonPath("$.data.code").value("BAD_REQUEST"));
     }
 
     @Test
@@ -354,7 +364,8 @@ class UserApiContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"disabled\":true}"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value(40004))
+                .andExpect(jsonPath("$.data.code").value("USER_NOT_FOUND"));
     }
 
     @Test

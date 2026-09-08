@@ -8,56 +8,65 @@ import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/**
- * Deterministic keyword routing for the explicit mock mode (autosense.llm.mode=mock).
- * Keeps the four capability intents, aftersales sub-mode and ambiguity/composite/out-of-scope
- * outcomes separate for offline tests. Never registers or implies test capability handlers.
- */
+/** Deterministic offline examples only; real semantic routing uses the resource-based AI Service. */
 @Component
 @ConditionalOnProperty(name = "autosense.llm.mode", havingValue = "mock", matchIfMissing = true)
 public class MockIntentClassifier implements IntentClassifier {
-
-    private static final String CLARIFY =
-            "请说明您希望咨询知识、查询设备、诊断故障，还是控制设备；本轮先处理一项。";
+    private static final String CLARIFY = "您好，请问我有什么可以帮您的吗？";
 
     @Override
     public RoutingDecision classify(String text, ConversationHistorySnapshot history) {
         String t = text == null ? "" : text;
-        boolean writes = t.contains("打开") || t.contains("关闭") || t.contains("调")
-                || t.contains("启动") || t.contains("停止") || t.contains("设置");
-        // Composite: conditional, multi-intent, or multi-device writes.
-        if (t.contains("如果") || t.contains("若 ") || t.startsWith("若")) {
-            return new RoutingDecision(RoutingOutcome.COMPOSITE, null, null, null, CLARIFY);
+        boolean writes = has(t, "打开", "关闭", "调节", "调整", "调到", "调亮", "调暗", "启动", "停止", "设置");
+        boolean question = has(t, "吗", "？", "?", "是否", "能否", "支持", "怎么", "如何", "适合", "够不够", "估算", "计算");
+        boolean deviceReference = referencesDevice(t) || (has(t, "它", "这台", "这个", "该设备")
+                && history != null && history.messages().stream()
+                .anyMatch(m -> "USER".equals(m.role()) && referencesDevice(m.content())));
+        boolean productSpecific = t.matches("(?s).*[A-Za-z]{1,5}[0-9]{2,}.*")
+                || has(t, "型号", "规格", "说明书", "手册", "产品文档", "厂商");
+        boolean parameters = has(t, "参数", "功率", "耗电", "亮度", "色温", "调色", "电量", "温度", "功能", "状态", "规格");
+        boolean parameterQuestion = deviceReference && parameters && (question || has(t, "多少", "根据", "结合", "基于"));
+        boolean explicitWrite = writes && (!parameterQuestion || has(t, "请打开", "请关闭", "请设置", "调到", "调亮", "调暗", "帮我", "把", "将"));
+        if (t.contains("如果") || t.contains("若 ") || t.startsWith("若")
+                || (t.contains("并") && explicitWrite)
+                || (has(t, "所有", "全部") && explicitWrite)) {
+            return new RoutingDecision(RoutingOutcome.COMPOSITE, null, null, null, CLARIFY, null);
         }
-        if (t.contains("并") && writes) {
-            return new RoutingDecision(RoutingOutcome.COMPOSITE, null, null, null, CLARIFY);
-        }
-        if ((t.contains("所有") || t.contains("全部")) && writes) {
-            return new RoutingDecision(RoutingOutcome.COMPOSITE, null, null, null, CLARIFY);
-        }
-        if (t.contains("售后") || t.contains("网点") || t.contains("维修点") || t.contains("服务点")) {
+        if (has(t, "售后", "网点", "维修点", "服务点", "保修")) {
             return new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.DIAGNOSIS,
-                    DiagnosisMode.AFTERSALES, null, null);
+                    DiagnosisMode.AFTERSALES, null, null, null);
         }
-        if (writes) {
-            return new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.CONTROL, null, null, null);
-        }
-        if (t.contains("列出") || t.contains("查询") || t.contains("多少") || t.contains("状态")) {
-            return new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.DEVICE_QUERY, null, null, null);
-        }
-        if (t.contains("不亮") || t.contains("太暗") || t.contains("不工作") || t.contains("坏了")
-                || t.contains("故障") || t.contains("离线") || t.contains("不响应")) {
+        if (explicitWrite) return single(CapabilityIntent.CONTROL, null);
+        if (has(t, "不亮", "太暗", "不工作", "坏了", "故障", "离线", "不响应")) {
             return new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.DIAGNOSIS,
-                    DiagnosisMode.DEFAULT, null, null);
+                    DiagnosisMode.DEFAULT, null, null, null);
         }
-        if (t.contains("型号") || t.contains("支持") || t.contains("参数") || t.contains("规格")
-                || t.contains("什么是") || t.contains("寿命") || t.contains("多久") || t.contains("怎么")) {
-            return new RoutingDecision(RoutingOutcome.SINGLE, CapabilityIntent.KNOWLEDGE, null, null, null);
+        if (parameterQuestion || (deviceReference && has(t, "参数", "多少", "状态", "支持", "功能", "型号"))
+                || (has(t, "列出", "有哪些") && has(t, "设备", "灯"))
+                || (!productSpecific && has(t, "查询", "多少", "状态") && !has(t, "什么是", "含义", "原理"))) {
+            return single(CapabilityIntent.DEVICE_QUERY, null);
         }
-        if (t.contains("诗") || t.contains("笑话") || t.contains("天气") || t.contains("新闻")
-                || t.contains("股票") || t.contains("翻译")) {
-            return new RoutingDecision(RoutingOutcome.OUT_OF_SCOPE, null, null, null, null);
+        if (has(t, "诗", "笑话", "天气", "新闻", "股票", "翻译")) {
+            return new RoutingDecision(RoutingOutcome.OUT_OF_SCOPE, null, null, null, null, null);
         }
-        return new RoutingDecision(RoutingOutcome.CLARIFY, null, null, null, CLARIFY);
+        if (productSpecific || has(t, "支持", "参数", "功能", "什么是", "含义", "原理", "寿命", "多久", "怎么", "如何")) {
+            boolean commonSense = !productSpecific && !has(t, "支持", "参数", "功能", "设置", "使用方法")
+                    && has(t, "什么是", "含义", "原理", "寿命", "多久");
+            return single(CapabilityIntent.KNOWLEDGE, !commonSense);
+        }
+        return new RoutingDecision(RoutingOutcome.CLARIFY, null, null, null, CLARIFY, null);
+    }
+
+    private static RoutingDecision single(CapabilityIntent intent, Boolean requiresKnowledgeBase) {
+        return new RoutingDecision(RoutingOutcome.SINGLE, intent, null, null, null, requiresKnowledgeBase);
+    }
+
+    private static boolean referencesDevice(String text) {
+        return text != null && has(text, "我的", "我家", "客厅", "卧室", "厨房", "书房", "绑定");
+    }
+
+    private static boolean has(String text, String... words) {
+        for (String word : words) if (text.contains(word)) return true;
+        return false;
     }
 }

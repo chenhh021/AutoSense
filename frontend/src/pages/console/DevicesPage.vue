@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { register1 as register } from '@/api/deviceController'
-import { deleteDevice, listDevices } from '@/api/custom'
+import { listMine, register1 as register } from '@/api/deviceController'
 
 const devices = ref<API.DeviceView[]>([])
 const loading = ref(false)
@@ -21,13 +20,12 @@ const columns = [
   { title: '型号', dataIndex: 'deviceModelCode', key: 'deviceModelCode' },
   { title: 'SN', dataIndex: 'sn', key: 'sn' },
   { title: '状态', dataIndex: 'online', key: 'online' },
-  { title: '操作', key: 'action', width: 100 },
 ]
 
 const fetchDevices = async () => {
   loading.value = true
   try {
-    devices.value = await listDevices()
+    devices.value = ((await listMine()) as { devices?: API.DeviceView[] }).devices ?? []
   } catch (e) {
     message.error('加载设备列表失败')
   } finally {
@@ -70,17 +68,6 @@ const submitAdd = async () => {
     addLoading.value = false
   }
 }
-
-const handleDelete = async (device: API.DeviceView) => {
-  if (!device.id) return
-  try {
-    await deleteDevice(device.id)
-    message.success('删除成功')
-    fetchDevices()
-  } catch (e) {
-    message.error('删除设备失败')
-  }
-}
 </script>
 
 <template>
@@ -110,16 +97,6 @@ const handleDelete = async (device: API.DeviceView) => {
           <a-tag :color="record.online ? 'green' : 'default'">
             {{ record.online ? '在线' : '离线' }}
           </a-tag>
-        </template>
-        <template v-if="column.key === 'action'">
-          <a-popconfirm
-            title="确定删除该设备吗？"
-            ok-text="删除"
-            cancel-text="取消"
-            @confirm="handleDelete(record)"
-          >
-            <a-button type="link" danger size="small">删除</a-button>
-          </a-popconfirm>
         </template>
       </template>
     </a-table>

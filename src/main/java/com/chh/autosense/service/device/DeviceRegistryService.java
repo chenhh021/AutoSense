@@ -1,4 +1,4 @@
-package com.chh.autosense.core.device;
+package com.chh.autosense.service.device;
 
 import com.chh.autosense.exception.ApiException;
 import com.chh.autosense.exception.ErrorCode;

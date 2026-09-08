@@ -6,6 +6,7 @@ import com.chh.autosense.core.routing.DirectAnswerer;
 import com.chh.autosense.core.routing.LangChain4jDirectAnswerer;
 import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 import com.chh.autosense.utils.PromptInputEncoder;
+import com.chh.autosense.support.LogCaptureSupport;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.rag.content.Content;
@@ -42,6 +43,33 @@ class LangChain4jDirectAnswererTest {
                 .thenReturn(stream);
         when(factory.directAnswerService()).thenReturn(service);
         answerer = new LangChain4jDirectAnswerer(factory, new PromptInputEncoder());
+    }
+
+    @Test
+    void synchronousStartFailureIsLoggedAndCompletesExceptionally() {
+        stream.startFailure = new IllegalStateException("secret-start");
+        try (var logs = new LogCaptureSupport()) {
+            var result = answerer.answer("secret-question", history, token -> { });
+            assertThat(result.toCompletableFuture()).isCompletedExceptionally();
+            assertThat(logs.rendered()).contains("phase=STREAM_START", "AI call failed")
+                    .doesNotContain("secret-", "AI call completed");
+        }
+    }
+
+    @Test
+    void consumerFailureIsDistinctFromProviderFailureAndLateCompletionDoesNotLogSuccess() {
+        try (var logs = new LogCaptureSupport()) {
+            var result = answerer.answer("secret-question", history,
+                    token -> { throw new IllegalStateException("secret-consumer"); });
+            stream.partial.accept("secret-response");
+            stream.complete.accept(mock(ChatResponse.class));
+            stream.error.accept(new IllegalStateException("secret-late-error"));
+            assertThat(result.toCompletableFuture()).isCompletedExceptionally();
+            assertThat(logs.rendered()).contains("phase=TOKEN_CALLBACK", "reasonCode=TOKEN_CALLBACK")
+                    .doesNotContain("secret-", "AI call completed");
+            assertThat(logs.events()).filteredOn(e -> e.getMessage().getFormattedMessage()
+                    .startsWith("AI call failed:")).hasSize(1);
+        }
     }
 
     @Test
@@ -92,6 +120,7 @@ class LangChain4jDirectAnswererTest {
 
     /** 手动驱动的 TokenStream：回调由测试触发，start 不做任何事。 */
     private static final class FakeTokenStream implements TokenStream {
+        private RuntimeException startFailure;
         private Consumer<String> partial = token -> { };
         private Consumer<ChatResponse> complete = response -> { };
         private Consumer<Throwable> error = error -> { };
@@ -123,6 +152,6 @@ class LangChain4jDirectAnswererTest {
             return this;
         }
 
-        @Override public void start() { }
+        @Override public void start() { if (startFailure != null) throw startFailure; }
     }
 }

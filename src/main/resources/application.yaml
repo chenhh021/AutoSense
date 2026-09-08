@@ -35,7 +35,7 @@ logging:
     org.apache.http.wire: 'OFF'
     reactor.netty.http.client: 'OFF'
   pattern:
-    console: ${LOGGING_PATTERN_CONSOLE:%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t requestId=%X{requestId} userId=%X{userId} sessionId=%X{sessionId} messageId=%X{messageId} round=%X{round} deviceId=%X{deviceId} %m%n%ex}
+    console: ${LOGGING_PATTERN_CONSOLE:%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t %notEmpty{[requestId=%X{requestId}, userId=%X{userId}, sessionId=%X{sessionId}, messageId=%X{messageId}, round=%X{round}, deviceId=%X{deviceId}] }%m%n%ex}
 
 server:
   port: 8180
@@ -76,8 +76,8 @@ autosense:
     # 仅支持 mock/real；当前默认使用真实 LangChain4j 模型，本地桩请显式设置 LLM_MODE=mock
     mode: ${LLM_MODE:real}
   assistant:
-    processing-timeout-seconds: ${ASSISTANT_PROCESSING_TIMEOUT_SECONDS:120}
-    session-lease-seconds: ${ASSISTANT_SESSION_LEASE_SECONDS:30}
+    processing-timeout-seconds: ${ASSISTANT_PROCESSING_TIMEOUT_SECONDS:300}
+    session-lease-seconds: ${ASSISTANT_SESSION_LEASE_SECONDS:180}
     session-renew-seconds: ${ASSISTANT_SESSION_RENEW_SECONDS:10}
     context-ttl-seconds: ${ASSISTANT_CONTEXT_TTL_SECONDS:1800}
   device-service:
