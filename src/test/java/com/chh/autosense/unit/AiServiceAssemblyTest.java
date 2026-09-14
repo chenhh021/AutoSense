@@ -3,7 +3,7 @@ package com.chh.autosense.unit;
 import com.chh.autosense.ai.factory.DirectAnswerServiceFactory;
 import com.chh.autosense.ai.factory.DiagnosisReasonerServiceFactory;
 import com.chh.autosense.ai.factory.IntentRouterServiceFactory;
-import com.chh.autosense.ai.factory.ProblemAnalysisServiceFactory;
+import com.chh.autosense.ai.factory.EnhancedAnswerFactory;
 import com.chh.autosense.ai.model.enums.CapabilityIntent;
 import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 import com.chh.autosense.support.LogCaptureSupport;
@@ -38,7 +38,7 @@ class AiServiceAssemblyTest {
     private final PromptInputEncoder encoder = new PromptInputEncoder();
     private WireMockServer server;
     private IntentRouterServiceFactory routerFactory;
-    private ProblemAnalysisServiceFactory analysisFactory;
+    private EnhancedAnswerFactory analysisFactory;
     private DiagnosisReasonerServiceFactory reasonerFactory;
     private DirectAnswerServiceFactory answerFactory;
 
@@ -54,17 +54,44 @@ class AiServiceAssemblyTest {
         routerFactory = new IntentRouterServiceFactory();
         ReflectionTestUtils.setField(routerFactory, "chatModel", chatModel);
         routerFactory.validate();
-        analysisFactory = new ProblemAnalysisServiceFactory();
-        ReflectionTestUtils.setField(analysisFactory, "chatModel", chatModel);
+        analysisFactory = new EnhancedAnswerFactory(chatModel, new dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<>(), new com.chh.autosense.support.DeterministicEmbeddingModel(), KnowledgeConfigurationTest.properties(Map.of()), com.chh.autosense.support.KnowledgeFixtures.catalog(), encoder);
         analysisFactory.validate();
         reasonerFactory = new DiagnosisReasonerServiceFactory();
         ReflectionTestUtils.setField(reasonerFactory, "chatModel", chatModel);
         reasonerFactory.validate();
-        answerFactory = new DirectAnswerServiceFactory();
-        ReflectionTestUtils.setField(answerFactory, "streamingChatModel", streamingChatModel);
+        answerFactory = new DirectAnswerServiceFactory(streamingChatModel);
         answerFactory.validate();
     }
     @AfterEach void stop() { server.stop(); }
+
+    @Test void cachedRealServiceFactoriesCreateNoModelRequests() {
+        var cache = new com.chh.autosense.service.knowledge.UserAiServiceCache(
+                KnowledgeConfigurationTest.properties(Map.of()),
+                answerFactory, analysisFactory, System::nanoTime);
+        var user = new com.chh.autosense.core.security.AuthUser(1L);
+        var pair = cache.getOrCreate(user);
+        assertThat(cache.getOrCreate(user)).isSameAs(pair);
+        var another = cache.getOrCreate(new com.chh.autosense.core.security.AuthUser(2L));
+        assertThat(another.direct()).isNotSameAs(pair.direct());
+        assertThat(another.analysis()).isNotSameAs(pair.analysis());
+        assertThat(another.enhanced()).isNotSameAs(pair.enhanced());
+        server.verify(0, postRequestedFor(anyUrl()));
+    }
+
+    @Test void specializedFactoryFailureDoesNotPublishPartialBundleAndCanRetry() {
+        var enhanced = org.mockito.Mockito.spy(analysisFactory);
+        org.mockito.Mockito.doThrow(new IllegalStateException("assembly failed"))
+                .doCallRealMethod().when(enhanced).enhancedAnswerService();
+        var cache = new com.chh.autosense.service.knowledge.UserAiServiceCache(
+                KnowledgeConfigurationTest.properties(Map.of()), answerFactory, enhanced, System::nanoTime);
+        var user = new com.chh.autosense.core.security.AuthUser(10L);
+        assertThatThrownBy(() -> cache.getOrCreate(user)).isInstanceOf(IllegalStateException.class);
+        assertThat(cache.estimatedSize()).isZero();
+        assertThat(cache.getOrCreate(user).enhanced()).isNotNull();
+        assertThat(cache.estimatedSize()).isEqualTo(1);
+        server.verify(0, postRequestedFor(anyUrl()));
+        assertThatThrownBy(() -> cache.getOrCreate(new com.chh.autosense.core.security.AuthUser(0L))).isInstanceOf(IllegalArgumentException.class);
+    }
 
     @Test void adapterLogsRealProviderStatusAndOutputParsingWithoutLeakingBodies() throws Exception {
         var adapter = new com.chh.autosense.core.routing.LangChain4jIntentClassifier(routerFactory, encoder);

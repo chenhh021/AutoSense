@@ -16,6 +16,20 @@ import java.util.function.Consumer;
 @ConditionalOnProperty(name = "autosense.llm.mode", havingValue = "mock", matchIfMissing = true)
 public class MockDirectAnswerer implements DirectAnswerer {
 
+    private final LangChain4jDirectAnswerer knowledge;
+
+    public MockDirectAnswerer(com.chh.autosense.ai.factory.DirectAnswerServiceFactory factory,
+            com.chh.autosense.utils.PromptInputEncoder encoder,
+            com.chh.autosense.service.knowledge.UserAiServiceCache cache) {
+        knowledge = new LangChain4jDirectAnswerer(factory, encoder, cache);
+    }
+
+    @Override
+    public CompletionStage<String> answerKnowledge(CapabilityRequest request,
+            com.chh.autosense.domain.dto.KnowledgeDirectAnswerContext context, Consumer<String> onToken) {
+        return knowledge.answerKnowledge(request, context, onToken);
+    }
+
     @Override
     public CompletionStage<String> answer(String question, ConversationHistorySnapshot history,
                                           Consumer<String> onToken) {

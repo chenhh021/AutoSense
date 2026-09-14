@@ -84,6 +84,7 @@ public abstract class AbstractIntegrationIT {
         registry.add("spring.data.redis.password", () -> "");
         registry.add("spring.sql.init.mode", () -> "always");
         registry.add("autosense.llm.mode", () -> "mock");
+        registry.add("autosense.knowledge.embedding.provider", () -> "mock");
         registry.add("autosense.device-service.base-url", () -> SIMULATOR_BASE_URL);
         registry.add("autosense.aftersales.mock-enabled", () -> "true");
         registry.add("autosense.auth.dev-mode", () -> "true");

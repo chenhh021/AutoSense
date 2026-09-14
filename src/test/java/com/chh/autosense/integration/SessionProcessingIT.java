@@ -48,6 +48,7 @@ class SessionProcessingIT extends AbstractIntegrationIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired StringRedisTemplate redis;
     @Autowired PlatformTransactionManager transactionManager;
+    @Autowired com.chh.autosense.config.AssistantProperties assistantProperties;
 
     @Test void concurrentAdmissionStoresExactlyOneInputAndKeepsTheWinningPointer() throws Exception {
         AuthUser user = user();
@@ -146,7 +147,7 @@ class SessionProcessingIT extends AbstractIntegrationIT {
         assertThat(lease).isNotNull();
         assertThat(leases.acquire(sessionId, 2)).isNull();
         assertThat(leases.renew(lease)).isTrue();
-        assertThat(redis.getExpire("autosense:lock:session:" + sessionId)).isBetween(1L, 30L);
+        assertThat(redis.getExpire("autosense:lock:session:" + sessionId)).isBetween(1L, (long) assistantProperties.sessionLeaseSeconds());
         redis.opsForValue().set("autosense:lock:session:" + sessionId, "new-owner", Duration.ofSeconds(30));
         assertThat(leases.renew(lease)).isFalse();
         assertThat(leases.release(lease)).isFalse();

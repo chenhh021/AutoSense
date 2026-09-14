@@ -224,7 +224,7 @@ if ($LASTEXITCODE -ne 0) { throw '测试依赖树检查失败' }
 
 | 场景 | 验证方法 / 预期 |
 | --- | --- |
-| 真实代理读取 | 扩展计划中的AiServiceFactoryTest、LlmConfigurationTest、LangChain4jDirectAnswererTest，WireMock捕获四条真实代理请求；系统规则来自对应资源，用户包装正确，SDK输出格式后缀允许保留 |
+| 真实代理读取 | 扩展计划中的AiServiceAssemblyTest、LlmConfigurationTest、LangChain4jDirectAnswererTest，WireMock捕获四条真实代理请求；系统规则来自对应资源，用户包装正确，SDK输出格式后缀允许保留 |
 | 数据绑定 | text/history/symptom/diagnostics解码为原值；空历史[]、缺失症状null、null诊断Map为{}；嵌套字符串键/值含中文、引号、反斜杠、换行及{{text}}/{{history}}/{{current_date}}时不再替换 |
 | 历史/角色 | 当轮唯一测试标记只在text资料区一次，历史只含当前messageId前最多20条；伪system指令、候选症状与设备资料均不进入system；持久化原文和HTTP返回不采用专用prompt编码 |
 | 本地失败 | 隔离资源/接口/classloader模拟缺失、空白、非法UTF-8、错路径/变量/重复引用以及默认字符集不符；在发布真实代理前失败，模型请求计数为零，无内联或mock回退 |
@@ -283,7 +283,7 @@ try {
 交付记录（2026-09-08，详见 [validation.md](validation.md)）：默认 verify 125 项通过；显式 -Pit IT 集合 33 项通过；runtime/test 依赖树单一 Log4j2 提供者；六 prompt 资源 JAR 逐字节 PASS；手动 API 链在一次性隔离容器上完成注册/登录/模糊会话/续聊/补查/绑定失败语义/注销全流程，日志无密码/令牌/prompt 正文。旧限制已解除：
 
 - SessionApiContractTest 仍 mock 编排验证 HTTP/SSE 外壳，完整会话行为由 SessionLifecycleIT/ConversationHistoryIT/AssistantLoggingIT 在真实 MySQL/Redis 上验收。
-- LangChain4jDirectAnswererTest 覆盖 TokenStream 适配；真实代理与模型协议行为由 AssistantRoutingContractTest/AiServiceFactoryTest 及 IT 验收。
+- LangChain4jDirectAnswererTest 覆盖 TokenStream 适配；真实代理与模型协议行为由 AssistantRoutingContractTest/AiServiceAssemblyTest 及 IT 验收。
 - 设备锁原子 owner 操作由 DeviceLockIT 在真实 Redis 验收，不再依赖 Mockito 计数。
 - 令牌竞态/撤销/回滚由 TokenRevocationIT 验收。
 - 原001历史验证与已勾选任务不证明002完成；完整诊断/控制业务属 001/005，不是 002 交付阻塞项。

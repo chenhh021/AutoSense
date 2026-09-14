@@ -6,7 +6,7 @@
 
 ## 1. AI Service 输入与创建
 
-由 ai/factory/AiServiceFactory 创建四类代理：意图路由、问题分析、诊断推理、流式回答。同步和流式代理分开装配；LangChain4jConfig 提供外部化模型配置与Bean接线。现有业务接口可保留作为适配边界，实际调用必须经过代理。
+分别由 ai/factory 下的 IntentRouterServiceFactory、EnhancedAnswerFactory、DiagnosisReasonerServiceFactory 和 DirectAnswerServiceFactory 创建意图路由、问题分析、诊断推理及流式回答代理；调用方直接使用对应工厂方法。同步和流式代理分开装配；LangChain4jConfig 提供外部化模型配置与Bean接线。现有业务接口可保留作为适配边界，实际调用必须经过代理。
 
 路由代理输入为：
 

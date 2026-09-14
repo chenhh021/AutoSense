@@ -24,7 +24,13 @@ public class RecordingCapabilityConfiguration {
     }
 
     @Bean Recorder recorder() { return new Recorder(); }
-    @Bean AssistantCapabilityHandler knowledgeReceiver(Recorder r) { return handler(AssistantCapability.KNOWLEDGE, r); }
+    @Bean KnowledgeCapabilityHandler knowledgeCapabilityHandler(Recorder r) {
+        return new KnowledgeCapabilityHandler(null, null, null, null, null) {
+            @Override public CompletionStage<CapabilityResult> handle(CapabilityRequest request, Consumer<String> sink) {
+                return handler(AssistantCapability.KNOWLEDGE, r).handle(request, sink);
+            }
+        };
+    }
     @Bean AssistantCapabilityHandler queryReceiver(Recorder r) { return handler(AssistantCapability.DEVICE_QUERY, r); }
     @Bean AssistantCapabilityHandler diagnosisReceiver(Recorder r) { return handler(AssistantCapability.DIAGNOSIS, r); }
     @Bean AssistantCapabilityHandler controlReceiver(Recorder r) { return handler(AssistantCapability.CONTROL, r); }

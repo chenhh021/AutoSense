@@ -86,7 +86,7 @@ class AssistantRoutingContractTest {
 
     @Test void knowledgeRetrievalAndDeviceParameterQuestionsHaveDistinctRoutes() {
         var classifier = new MockIntentClassifier();
-        for (String question : List.of("什么是色温", "空调的制冷原理是什么", "普通LED灯的寿命多久")) {
+        for (String question : List.of("什么是色温", "空调的制冷原理是什么", "普通LED灯的寿命多久", "色温和亮度有什么区别", "它对阅读有什么影响")) {
             var decision = validator.validate(classifier.classify(question, empty));
             assertThat(decision.intent()).isEqualTo(CapabilityIntent.KNOWLEDGE);
             assertThat(decision.requiresKnowledgeBase()).isFalse();

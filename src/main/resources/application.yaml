@@ -100,6 +100,39 @@ autosense:
     dev-mode: ${AUTH_DEV_MODE:false}
     # 登录令牌滚动 TTL(天),存 Redis autosense:token:{token}(R19)
     token-ttl-days: ${AUTH_TOKEN_TTL_DAYS:7}
+  knowledge:
+    store:
+      type: ${KNOWLEDGE_STORE_TYPE:memory}
+    documents:
+      location: classpath*:document/**/*.md
+      max-total-bytes: ${KNOWLEDGE_MAX_TOTAL_BYTES:33554432}
+      max-segments: ${KNOWLEDGE_MAX_SEGMENTS:10000}
+      startup-timeout-seconds: ${KNOWLEDGE_STARTUP_TIMEOUT_SECONDS:300}
+      max-segment-chars: ${KNOWLEDGE_MAX_SEGMENT_CHARS:1000}
+      overlap-chars: ${KNOWLEDGE_OVERLAP_CHARS:150}
+    retrieval:
+      top-k: ${KNOWLEDGE_TOP_K:4}
+      min-score: ${KNOWLEDGE_MIN_SCORE:0.75}
+    service-cache:
+      maximum-size: ${KNOWLEDGE_SERVICE_CACHE_SIZE:1000}
+      expire-after-access: ${KNOWLEDGE_SERVICE_CACHE_TTL:30m}
+    type-aliases:
+      '[智能灯泡]': light
+      '[灯泡]': light
+      '[空调]': air_conditioner
+    brand-aliases:
+      '[小米]': MI
+      '[米家]': MI
+    embedding:
+      # Mock requires both LLM_MODE=mock and KNOWLEDGE_EMBEDDING_PROVIDER=mock.
+      provider: ${KNOWLEDGE_EMBEDDING_PROVIDER:openai-compatible}
+      base-url: ${KNOWLEDGE_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      api-key: ${KNOWLEDGE_EMBEDDING_API_KEY:}
+      model-name: ${KNOWLEDGE_EMBEDDING_MODEL_NAME:text-embedding-v4}
+      dimensions: ${KNOWLEDGE_EMBEDDING_DIMENSIONS:1536}
+      timeout-seconds: ${KNOWLEDGE_EMBEDDING_TIMEOUT_SECONDS:10}
+      max-retries: ${KNOWLEDGE_EMBEDDING_MAX_RETRIES:0}
+      max-segments-per-batch: ${KNOWLEDGE_EMBEDDING_BATCH_SIZE:32}
   rag:
     # Redis 向量索引(research R4;索引型数据,显式重建,TTL 例外已论证)
     embeddings-enabled: ${RAG_EMBEDDINGS_ENABLED:false}

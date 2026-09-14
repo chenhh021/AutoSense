@@ -109,11 +109,15 @@ public class SessionProcessingService {
             session.setDeviceId(null);
         }
         ChatMessage message = saveMessage(session.getId(), "USER", visible);
+        // DATETIME/NOW() use the database session's wall clock, which may differ from the JVM zone.
+        // Persist the database deadline for authoritative finalization; carry the same (conservative)
+        // fixed budget on the application's clock for Guard and downstream model checks.
+        LocalDateTime applicationDeadline = LocalDateTime.now().plusSeconds(properties.processingTimeoutSeconds());
         LocalDateTime deadline = sessions.databaseNow().plusSeconds(properties.processingTimeoutSeconds());
         session.setProcessingMessageId(message.getId());
         session.setProcessingDeadlineAt(deadline);
         Accepted accepted = new Accepted(session.getId(), session.getUserId(), message.getId(),
-                report.getId(), report.getRound(), visible, confirmRepair, deadline, previous);
+                report.getId(), report.getRound(), visible, confirmRepair, applicationDeadline, previous);
         try (var ignored = LogContextUtils.install(accepted.logContext())) {
         // Capability-specific waits stay in their state until their handler resolves continuation.
         if (previous == CREATED || previous.isTerminal() || previous == CLARIFYING) {

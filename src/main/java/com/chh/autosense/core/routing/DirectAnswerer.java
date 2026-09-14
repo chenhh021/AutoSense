@@ -19,4 +19,7 @@ public interface DirectAnswerer {
      */
     CompletionStage<String> answer(String question, ConversationHistorySnapshot history,
                                    Consumer<String> onToken);
+
+    CompletionStage<String> answerKnowledge(CapabilityRequest request,
+            com.chh.autosense.domain.dto.KnowledgeDirectAnswerContext context, Consumer<String> onToken);
 }

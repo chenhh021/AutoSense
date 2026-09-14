@@ -46,6 +46,61 @@ class LangChain4jDirectAnswererTest {
     }
 
     @Test
+    void knowledgeUsesAuthenticatedCachedServiceAndPreservesCallbackContext() {
+        var cache = mock(com.chh.autosense.service.knowledge.UserAiServiceCache.class);
+        var user = new com.chh.autosense.core.security.AuthUser(7L);
+        var direct = mock(DirectAnswerService.class);
+        var analysis = mock(com.chh.autosense.ai.EnhancedAnswerService.class);
+        var enhanced = mock(com.chh.autosense.ai.EnhancedAnswerService.class);
+        when(cache.getOrCreate(user)).thenReturn(new com.chh.autosense.service.knowledge.UserAiServiceCache.UserAiServices(direct, analysis, enhanced));
+        when(direct.answerKnowledge(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.contains("COMMON_SENSE"))).thenReturn(stream);
+        var adapter = new LangChain4jDirectAnswerer(factory, new PromptInputEncoder(), cache);
+        var request = new com.chh.autosense.core.routing.CapabilityRequest(user, 1, 1, 1, 2, "question", null,
+                history, java.time.LocalDateTime.now().plusMinutes(1), com.chh.autosense.domain.enums.AssistantCapability.KNOWLEDGE,
+                null, null, null, false);
+        List<String> tokens = new ArrayList<>();
+        CompletionStage<String> result;
+        try (var context = com.chh.autosense.utils.LogContextUtils.install(java.util.Map.of("userId", "7", "sessionId", "1"))) {
+            result = adapter.answerKnowledge(request, new com.chh.autosense.domain.dto.KnowledgeDirectAnswerContext(
+                    com.chh.autosense.domain.enums.KnowledgeDirectAnswerReason.COMMON_SENSE), token -> {
+                assertThat(org.slf4j.MDC.get("userId")).isEqualTo("7");
+                tokens.add(token);
+            });
+        }
+        stream.partial.accept("answer");
+        stream.complete.accept(mock(ChatResponse.class));
+        assertThat(result.toCompletableFuture()).isCompletedWithValue("answer");
+        assertThat(tokens).containsExactly("answer");
+        assertThat(org.slf4j.MDC.get("userId")).isNull();
+        org.mockito.Mockito.verifyNoInteractions(factory, analysis, enhanced);
+    }
+
+    @Test
+    void stalledKnowledgeStreamExpiresAndIgnoresLateProviderCallbacks() throws Exception {
+        var cache = mock(com.chh.autosense.service.knowledge.UserAiServiceCache.class);
+        var user = new com.chh.autosense.core.security.AuthUser(7L);
+        var service = mock(DirectAnswerService.class);
+        when(cache.getOrCreate(user)).thenReturn(new com.chh.autosense.service.knowledge.UserAiServiceCache.UserAiServices(
+                service, mock(com.chh.autosense.ai.EnhancedAnswerService.class), mock(com.chh.autosense.ai.EnhancedAnswerService.class)));
+        when(service.answerKnowledge(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(stream);
+        var request = new com.chh.autosense.core.routing.CapabilityRequest(user, 1, 1, 1, 2, "question", null,
+                history, java.time.LocalDateTime.now().plusNanos(150_000_000), com.chh.autosense.domain.enums.AssistantCapability.KNOWLEDGE,
+                null, null, null, false);
+        List<String> tokens = new ArrayList<>();
+        try (var logs = new LogCaptureSupport()) {
+            var result = new LangChain4jDirectAnswerer(factory, new PromptInputEncoder(), cache).answerKnowledge(request,
+                    new com.chh.autosense.domain.dto.KnowledgeDirectAnswerContext(com.chh.autosense.domain.enums.KnowledgeDirectAnswerReason.COMMON_SENSE), tokens::add);
+            assertThatThrownBy(() -> result.toCompletableFuture().get(2, java.util.concurrent.TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(java.util.concurrent.TimeoutException.class);
+            stream.partial.accept("late"); stream.complete.accept(mock(ChatResponse.class));
+            assertThat(tokens).isEmpty();
+            assertThat(logs.rendered()).doesNotContain("AI call completed");
+        }
+    }
+
+    @Test
     void synchronousStartFailureIsLoggedAndCompletesExceptionally() {
         stream.startFailure = new IllegalStateException("secret-start");
         try (var logs = new LogCaptureSupport()) {

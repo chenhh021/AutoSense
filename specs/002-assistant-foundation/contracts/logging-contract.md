@@ -43,7 +43,7 @@ Console 是本期默认输出位置。若部署通过外部配置启用文件输
 | 安全入口、统一异常处理、业务归属检查 | Authentication rejected / Access denied / Request validation failed | WARN；reasonCode/errorCode，参数只记录字段名及校验规则，不记录 rejectedValue |
 | DeviceRegistryService 绑定/列表 | Device binding started / Device binding completed / Device binding rejected / Device list completed | INFO 已提交绑定与列表汇总；WARN 冲突；数量、deviceId，不输出整份列表或原始SN/名称 |
 | 共享外部设备客户端 | External call completed / External call timed out / External call failed | INFO 结果和elapsedMs；WARN 有界超时/降级；ERROR 关键依赖故障由最终边界记堆栈；operation而非完整URL |
-| AiServiceFactory资源装配校验 | AI prompt resources validated / AI prompt resource validation failed | INFO一次汇总成功；ERROR配置失败；仅安全service/method/resource/reasonCode，不含模板、变量值或原始异常正文 |
+| 各专用工厂调用 AiServiceValidator 进行资源装配校验 | AI prompt resources validated / AI prompt resource validation failed | INFO一次汇总成功；ERROR配置失败；仅安全service/method/resource/reasonCode，不含模板、变量值或原始异常正文 |
 | AI Service 外层适配器 | AI call completed / AI call timed out / AI call failed | INFO 结果、operation和elapsedMs；WARN 超时；系统失败最终边界ERROR；无prompt/history/输出正文 |
 | IntentClassifier / CapabilityDispatcher | Intent routed / Routing clarification required / Request out of scope / Capability dispatched / Capability unavailable | INFO 分类/分发；未知结构或缺失能力WARN；记录枚举，不输出targetHint/clarifyQuestion全文 |
 | 公共会话事务与状态迁移 | Session request accepted / Session state changed / Session request completed | INFO；messageId/round/fromState/toState/result；接纳、迁移、完成事实均在对应提交成功后记 |

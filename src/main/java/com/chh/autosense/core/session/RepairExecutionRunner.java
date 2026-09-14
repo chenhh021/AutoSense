@@ -18,7 +18,7 @@ import com.chh.autosense.domain.entity.Device;
 import com.chh.autosense.domain.entity.DiagnosticSnapshot;
 import com.chh.autosense.domain.entity.RepairKnowledge;
 import com.chh.autosense.domain.entity.RepairSession;
-import com.chh.autosense.service.knowledge.RepairKnowledgeService;
+import com.chh.autosense.mapper.RepairKnowledgeMapper;
 import com.chh.autosense.core.repair.RepairExecutor;
 import com.chh.autosense.mapper.ChatMessageMapper;
 import com.chh.autosense.mapper.DeviceMapper;
@@ -49,7 +49,7 @@ public class RepairExecutionRunner {
     private final ProblemReportMapper reportMapper;
     private final ChatMessageMapper messageMapper;
     private final DeviceAdapterRegistryService adapterRegistry;
-    private final RepairKnowledgeService knowledgeService;
+    private final RepairKnowledgeMapper knowledgeMapper;
     private final RepairExecutor repairExecutor;
     private final FaultRuleEngine faultRuleEngine;
     private final DeviceLockService lockService;
@@ -62,7 +62,7 @@ public class RepairExecutionRunner {
                                  ProblemReportMapper reportMapper,
                                  ChatMessageMapper messageMapper,
                                  DeviceAdapterRegistryService adapterRegistry,
-                                 RepairKnowledgeService knowledgeService,
+                                 RepairKnowledgeMapper knowledgeMapper,
                                  RepairExecutor repairExecutor,
                                  FaultRuleEngine faultRuleEngine,
                                  DeviceLockService lockService,
@@ -75,7 +75,7 @@ public class RepairExecutionRunner {
         this.reportMapper = reportMapper;
         this.messageMapper = messageMapper;
         this.adapterRegistry = adapterRegistry;
-        this.knowledgeService = knowledgeService;
+        this.knowledgeMapper = knowledgeMapper;
         this.repairExecutor = repairExecutor;
         this.faultRuleEngine = faultRuleEngine;
         this.lockService = lockService;
@@ -135,7 +135,7 @@ public class RepairExecutionRunner {
             stream.conclude(buildConclusion(session));
         } catch (Exception e) {
             // 细节仅落日志(章程 V):面向用户不泄露内部异常信息
-            log.error("修复执行异常 session={}", sessionId, e);
+            log.error("Repair execution failed: sessionId={}", sessionId, com.chh.autosense.utils.LogSanitizer.diagnostic(e));
             session.setStatus(SessionStatus.COMPLETED_UNFIXED.name());
             session.setConclusionType(ConclusionType.UNFIXED_MANUAL_GUIDE.name());
             session.setConclusion("操作过程出现异常,未做进一步操作,请稍后再试或联系售后。");
@@ -150,11 +150,23 @@ public class RepairExecutionRunner {
         }
     }
 
+    /** Legacy diagnostic lookup stays separate from the file-backed consultation index. */
+    private Optional<RepairKnowledge> findManualKnowledge(String deviceType, String problemSummary) {
+        String summary = problemSummary == null ? "" : problemSummary;
+        return knowledgeMapper.selectListByQuery(QueryWrapper.create().where("device_type = ?", deviceType)).stream()
+                .filter(knowledge -> {
+                    String pattern = knowledge.getProblemPattern();
+                    if (pattern == null) return false;
+                    return summary.contains(pattern) || pattern.contains(summary)
+                            || java.util.Arrays.stream(pattern.split("[,、\\s]+"))
+                                    .anyMatch(keyword -> !keyword.isBlank() && summary.contains(keyword));
+                }).findFirst();
+    }
+
     /** 失败/未恢复 → 人工引导:有人工步骤 GUIDED_MANUAL,否则等位置(FR-010/011)。 */
     private void guideAfterUnfixed(RepairSession session, Device device, String reasonText,
                                    SseEventStream stream) {
-        Optional<RepairKnowledge> knowledge = knowledgeService
-                .findSolution(diagnosticTypeOf(device), reasonText);
+        Optional<RepairKnowledge> knowledge = findManualKnowledge(diagnosticTypeOf(device), reasonText);
         if (knowledge.isPresent() && knowledge.get().getManualSteps() != null
                 && !Boolean.TRUE.equals(knowledge.get().getAutoExecutable())) {
             transition(session, SessionStatus.VERIFYING, SessionStatus.GUIDED_MANUAL, stream);

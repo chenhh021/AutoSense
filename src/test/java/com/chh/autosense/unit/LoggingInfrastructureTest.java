@@ -18,6 +18,21 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.*;
 
 class LoggingInfrastructureTest {
+    @Test void knowledgeStartupAndConversationDiagnosticsUseTheirOwnContextOnly() {
+        try (var logs = new LogCaptureSupport()) {
+            com.chh.autosense.utils.AiCallLog.start("indexLoad").completed();
+            assertThat(logs.rendered()).doesNotContain("requestId=", "sessionId=", "userId=");
+            logs.clear();
+            try (var context = LogContextUtils.install(Map.of("requestId", "2529b69a-6cb0-4a87-9d68-4bf329804673", "userId", "7", "sessionId", "9"))) {
+                com.chh.autosense.utils.AiCallLog.start("queryAnalysis").completed();
+            }
+            var layout = org.apache.logging.log4j.core.layout.PatternLayout.newBuilder()
+                    .withPattern("%notEmpty{[requestId=%X{requestId}, userId=%X{userId}, sessionId=%X{sessionId}, messageId=%X{messageId}, round=%X{round}, deviceId=%X{deviceId}] }%m%n").build();
+            assertThat(layout.toSerializable(logs.events().getFirst()))
+                    .contains("[requestId=2529b69a-6cb0-4a87-9d68-4bf329804673, userId=7, sessionId=9, messageId=, round=, deviceId=]");
+            assertThat(MDC.get("sessionId")).isNull();
+        }
+    }
     @Test void providerAndCaptureRestoreAndSensitiveChains() {
         assertThat(LoggerFactory.getILoggerFactory().getClass().getName())
                 .isEqualTo("org.apache.logging.slf4j.Log4jLoggerFactory");

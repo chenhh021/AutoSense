@@ -62,6 +62,10 @@ public final class AiServiceValidator {
         }
         String systemTemplate = load(service, method, system.fromResource(), resources);
         String userTemplate = load(service, method, user.fromResource(), resources);
+        if (user.fromResource().equals("/prompt/knowledge-answer-input.txt")
+                && !userTemplate.trim().equals("{{request}}")) {
+            throw failure(service, method, user.fromResource(), "KNOWLEDGE_ENVELOPE_TEMPLATE_INVALID");
+        }
         Map<String, Integer> systemVariables = variables(service, method, system.fromResource(), systemTemplate);
         if (!systemVariables.isEmpty()) {
             throw failure(service, method, system.fromResource(), "SYSTEM_TEMPLATE_HAS_VARIABLES");
@@ -72,7 +76,9 @@ public final class AiServiceValidator {
             if (annotation == null || annotation.value().isBlank()) {
                 throw failure(service, method, null, "PARAMETER_MISSING_V");
             }
-            bound.add(annotation.value());
+            if (!bound.add(annotation.value())) {
+                throw failure(service, method, null, "PARAMETER_V_DUPLICATED");
+            }
         }
         Map<String, Integer> userVariables = variables(service, method, user.fromResource(), userTemplate);
         for (Map.Entry<String, Integer> entry : userVariables.entrySet()) {

@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /** One bounded diagnostic per AI invocation; never inspect exception messages or model data. */
 @Slf4j
 public final class AiCallLog {
-    public enum Phase { INPUT_ENCODING, SERVICE_SETUP, MODEL_INVOCATION, STREAM_START, STREAM_RECEIVE, TOKEN_CALLBACK }
+    public enum Phase { INPUT_ENCODING, SERVICE_SETUP, MODEL_INVOCATION, OUTPUT_VALIDATION, STREAM_START, STREAM_RECEIVE, TOKEN_CALLBACK }
 
     private final String operation;
     private final String callId = UUID.randomUUID().toString();
@@ -71,6 +71,14 @@ public final class AiCallLog {
 
     public void failed(Throwable error) { failed(error, phase); }
 
+    public void skipped(String reason) {
+        if (!finished.compareAndSet(false, true)) return;
+        try (var ignored = LogContextUtils.install(context)) {
+            log.info("AI call skipped: operation={}, callId={}, reasonCode={}, elapsedMs={}",
+                    operation, callId, LogSanitizer.label(reason), elapsed());
+        }
+    }
+
     public void failed(Throwable error, Phase failedPhase) {
         if (!finished.compareAndSet(false, true)) return;
         List<Throwable> chain = causes(error);
@@ -104,6 +112,7 @@ public final class AiCallLog {
         if (phase == Phase.INPUT_ENCODING) return "INPUT_ENCODING";
         if (phase == Phase.SERVICE_SETUP) return "SERVICE_SETUP";
         if (phase == Phase.TOKEN_CALLBACK) return "TOKEN_CALLBACK";
+        if (phase == Phase.OUTPUT_VALIDATION) return "OUTPUT_VALIDATION";
         if (chain.stream().anyMatch(e -> e instanceof SocketTimeoutException || e instanceof HttpTimeoutException
                 || e instanceof TimeoutException || e instanceof dev.langchain4j.exception.TimeoutException)) return "TIMEOUT";
         if (chain.stream().anyMatch(e -> e instanceof UnknownHostException

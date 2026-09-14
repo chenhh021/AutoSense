@@ -1,7 +1,7 @@
 package com.chh.autosense.core.analysis;
 
 import com.chh.autosense.ai.factory.AiFailureMapping;
-import com.chh.autosense.ai.factory.ProblemAnalysisServiceFactory;
+import com.chh.autosense.ai.factory.EnhancedAnswerFactory;
 import com.chh.autosense.ai.model.ProblemAnalysis;
 import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 import com.chh.autosense.exception.ApiException;
@@ -18,12 +18,12 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class LangChain4jProblemAnalyzer implements ProblemAnalyzer {
 
-    private final ProblemAnalysisServiceFactory problemAnalysisServiceFactory;
+    private final EnhancedAnswerFactory enhancedAnswerFactory;
     private final PromptInputEncoder encoder;
 
-    public LangChain4jProblemAnalyzer(ProblemAnalysisServiceFactory problemAnalysisServiceFactory,
+    public LangChain4jProblemAnalyzer(EnhancedAnswerFactory enhancedAnswerFactory,
                                       PromptInputEncoder encoder) {
-        this.problemAnalysisServiceFactory = problemAnalysisServiceFactory;
+        this.enhancedAnswerFactory = enhancedAnswerFactory;
         this.encoder = encoder;
     }
 
@@ -34,7 +34,7 @@ public class LangChain4jProblemAnalyzer implements ProblemAnalyzer {
             String historyJson = encoder.history(history);
             String textJson = encoder.text(text);
             call.phase(AiCallLog.Phase.SERVICE_SETUP);
-            var service = problemAnalysisServiceFactory.problemAnalysisService();
+            var service = enhancedAnswerFactory.problemAnalysisService();
             call.phase(AiCallLog.Phase.MODEL_INVOCATION);
             ProblemAnalysis analysis = service.analyze(historyJson, textJson);
             call.completed();

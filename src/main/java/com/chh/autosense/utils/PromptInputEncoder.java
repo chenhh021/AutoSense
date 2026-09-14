@@ -26,6 +26,9 @@ import java.util.Objects;
 public class PromptInputEncoder {
 
     private final ObjectWriter writer;
+    private final com.fasterxml.jackson.databind.ObjectReader knowledgeReader =
+            new ObjectMapper().readerFor(com.chh.autosense.domain.dto.KnowledgeAnswerRequest.class)
+                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     public PromptInputEncoder() {
         ObjectMapper mapper = new ObjectMapper();
@@ -40,11 +43,16 @@ public class PromptInputEncoder {
 
     /** Read-only history projected to a JSON array of {"role","content"}; empty history is []. */
     public String history(ConversationHistorySnapshot snapshot) {
+        return encode(visibleHistory(snapshot));
+    }
+
+    public List<Map<String, String>> visibleHistory(ConversationHistorySnapshot snapshot) {
         Objects.requireNonNull(snapshot, "history snapshot is required");
-        List<Map<String, String>> projection = snapshot.messages().stream()
+        return snapshot.messages().stream()
+                .filter(entry -> entry.id() < snapshot.beforeMessageId())
+                .skip(Math.max(0, snapshot.messages().stream().filter(entry -> entry.id() < snapshot.beforeMessageId()).count() - 20))
                 .map(entry -> Map.of("role", entry.role(), "content", entry.content()))
                 .toList();
-        return encode(projection);
     }
 
     /** Candidate symptom as a JSON string, or the JSON literal null when absent. */
@@ -64,6 +72,41 @@ public class PromptInputEncoder {
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Prompt input encoding failed");
         }
+    }
+
+    public String knowledgeRequest(com.chh.autosense.domain.dto.KnowledgeAnswerRequest request) {
+        return encode(Objects.requireNonNull(request));
+    }
+
+    public com.chh.autosense.domain.dto.KnowledgeAnswerRequest readKnowledgeRequest(String request) {
+        try {
+            return Objects.requireNonNull(knowledgeReader.readValue(request));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid knowledge request envelope");
+        }
+    }
+
+    public String answerContext(com.chh.autosense.domain.dto.KnowledgeDirectAnswerContext context) {
+        return encode(Objects.requireNonNull(context));
+    }
+
+    public String knowledgeCatalog(com.chh.autosense.ai.rag.KnowledgeEmbeddingStore.Catalog catalog) {
+        return encode(catalog);
+    }
+
+    public String knowledgeEvidence(com.chh.autosense.domain.dto.KnowledgeAnswerRequest request,
+                                    List<dev.langchain4j.rag.content.Content> contents) {
+        var evidence = contents.stream().map(content -> {
+            var segment = content.textSegment();
+            Map<String, Object> projection = new java.util.LinkedHashMap<>();
+            for (String key : List.of("sourceId", "sourceName", "documentHash", "index", "deviceType",
+                    "brand", "model", "knowledgeKind")) projection.put(key, segment.metadata().getString(key));
+            projection.put("text", segment.text());
+            projection.put("score", content.metadata().get(dev.langchain4j.rag.content.ContentMetadata.SCORE));
+            return projection;
+        }).toList();
+        return encode(Map.of("history", request.history(), "text", request.text(), "queryText", request.queryText(),
+                "scope", request.scope(), "evidence", evidence));
     }
 
     private static void rejectRaw(Object value) {

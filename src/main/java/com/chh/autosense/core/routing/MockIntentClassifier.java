@@ -49,9 +49,9 @@ public class MockIntentClassifier implements IntentClassifier {
         if (has(t, "诗", "笑话", "天气", "新闻", "股票", "翻译")) {
             return new RoutingDecision(RoutingOutcome.OUT_OF_SCOPE, null, null, null, null, null);
         }
-        if (productSpecific || has(t, "支持", "参数", "功能", "什么是", "含义", "原理", "寿命", "多久", "怎么", "如何")) {
+        if (productSpecific || has(t, "支持", "参数", "功能", "什么是", "含义", "原理", "寿命", "多久", "怎么", "如何", "区别", "影响")) {
             boolean commonSense = !productSpecific && !has(t, "支持", "参数", "功能", "设置", "使用方法")
-                    && has(t, "什么是", "含义", "原理", "寿命", "多久");
+                    && has(t, "什么是", "含义", "原理", "寿命", "多久", "区别", "影响");
             return single(CapabilityIntent.KNOWLEDGE, !commonSense);
         }
         return new RoutingDecision(RoutingOutcome.CLARIFY, null, null, null, CLARIFY, null);

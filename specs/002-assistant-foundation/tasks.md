@@ -73,7 +73,7 @@
 
 - [X] T014 [P] [US1] 新增 `src/test/java/com/chh/autosense/contract/AssistantRoutingContractTest.java`：先定义四类SINGLE、型号知识、售后子模式、普通澄清、复合/条件/多设备写、OUT_OF_SCOPE、未知枚举/矛盾结构及服务故障的分类/错误断言，并验证重复处理器注册启动失败和缺失处理器拒绝；校验候选字段不能产生身份或确认授权；测试分类语义而非提示词全文。
 
-- [X] T015 [P] [US1] 新增 `src/test/java/com/chh/autosense/unit/AiServiceFactoryTest.java`，扩展 `src/test/java/com/chh/autosense/unit/LlmConfigurationTest.java`、`src/test/java/com/chh/autosense/unit/LangChain4jDirectAnswererTest.java`，复用 `src/test/java/com/chh/autosense/support/LogCaptureSupport.java`：WireMock仅模拟模型协议，真实工厂/四代理捕获请求验证六资源生效、JSON数据与角色、三个record解析、配置切换及TokenStream成功/失败/同步完成；按下表覆盖资源/变量/编码失败、零模型请求、字面花括号与脱敏异常。使用隔离测试接口/classloader及内存字节夹具，不以同名测试资源遮盖主资源，不mock掉代理；默认离线测试也覆盖真实工厂，不因应用mock模式跳过。
+- [X] T015 [P] [US1] 新增 `src/test/java/com/chh/autosense/unit/AiServiceAssemblyTest.java`，扩展 `src/test/java/com/chh/autosense/unit/LlmConfigurationTest.java`、`src/test/java/com/chh/autosense/unit/LangChain4jDirectAnswererTest.java`，复用 `src/test/java/com/chh/autosense/support/LogCaptureSupport.java`：WireMock仅模拟模型协议，真实工厂/四代理捕获请求验证六资源生效、JSON数据与角色、三个record解析、配置切换及TokenStream成功/失败/同步完成；按下表覆盖资源/变量/编码失败、零模型请求、字面花括号与脱敏异常。使用隔离测试接口/classloader及内存字节夹具，不以同名测试资源遮盖主资源，不mock掉代理；默认离线测试也覆盖真实工厂，不因应用mock模式跳过。
 
 - [X] T016 [P] [US1] 新增 `src/test/java/com/chh/autosense/support/RecordingCapabilityConfiguration.java` 与 `src/test/java/com/chh/autosense/integration/AssistantRoutingIT.java`：先定义通过实际鉴权、公共入口、编排和SSE进入四个仅src/test注册的接收器的验收；含同会话终态后改问另一能力，每次仅目标接收一次且user/session/message/round与20条历史边界准确，模糊/复合/缺失处理器零设备读写，其余接收器场景零设备写；运行时prompt/数据编码故障明确失败而非歧义或成功，SSE不返回内部prompt及渲染包装。外部夹具操作不计业务调用，真实代理加载证据复用T015。
 
@@ -97,7 +97,7 @@
 
 - [X] T019 [US1] 新增 `src/main/java/com/chh/autosense/core/routing/CapabilityRequest.java`、`src/main/java/com/chh/autosense/core/routing/CapabilityResult.java`、`src/main/java/com/chh/autosense/core/routing/AssistantCapabilityHandler.java`：不可变请求包含服务端AuthUser/session/report/round/message、内容/兼容意向/历史边界/截止及已校验分类；定义异步完成/等待/失败与公共文本sink，状态/持久化归公共入口，控制意向不是授权。（依赖 T017）
 
-- [X] T020 [US1] 新增受Spring管理的 `src/main/java/com/chh/autosense/ai/factory/AiServiceFactory.java` 及 `src/main/resources/prompt/intent-router.txt`、`src/main/resources/prompt/problem-analysis.txt`、`src/main/resources/prompt/diagnosis-reasoner.txt`、`src/main/resources/prompt/direct-answer.txt`、`src/main/resources/prompt/conversation-input.txt`、`src/main/resources/prompt/diagnosis-input.txt`：按prompt契约迁移固定规则与包装，UTF-8无BOM；内嵌四个公开接口，在方法上分别声明@SystemMessage/@UserMessage的fromResource（/prompt/对应文件）及显式@V，创建三个同步record代理与一个TokenStream代理。工厂发布前从实际方法注解以接口Class.getResourceAsStream检查六资源、默认UTF-8字符集、系统零变量、用户精确变量各一次及非null样例渲染；失败安全终止装配、零远程调用、英文日志不含正文或原始cause。不依赖build自动校验，不挂ChatMemory/@MemoryId/tools/toolProvider，不全量扫描BaseTool。（依赖 T017、T018、T015）
+- [X] T020 [US1] 在受 Spring 管理的 `src/main/java/com/chh/autosense/ai/factory/IntentRouterServiceFactory.java`、`src/main/java/com/chh/autosense/ai/factory/EnhancedAnswerFactory.java`、`src/main/java/com/chh/autosense/ai/factory/DiagnosisReasonerServiceFactory.java`、`src/main/java/com/chh/autosense/ai/factory/DirectAnswerServiceFactory.java` 中分别创建服务，复用 `src/main/java/com/chh/autosense/utils/AiServiceValidator.java` 校验资源；维护 `src/main/resources/prompt/intent-router.txt`、`src/main/resources/prompt/problem-analysis.txt`、`src/main/resources/prompt/diagnosis-reasoner.txt`、`src/main/resources/prompt/direct-answer.txt`、`src/main/resources/prompt/conversation-input.txt`、`src/main/resources/prompt/diagnosis-input.txt`：按prompt契约迁移固定规则与包装，UTF-8无BOM；四个服务接口独立位于 ai 包，在方法上分别声明@SystemMessage/@UserMessage的fromResource（/prompt/对应文件）及显式@V，创建三个同步record代理与一个TokenStream代理。各专用工厂发布前经 AiServiceValidator 从实际方法注解以接口Class.getResourceAsStream检查六资源、默认UTF-8字符集、系统零变量、用户精确变量各一次及非null样例渲染；失败安全终止装配、零远程调用、英文日志不含正文或原始cause。不依赖build自动校验，不挂ChatMemory/@MemoryId/tools/toolProvider，不全量扫描BaseTool。（依赖 T017、T018、T015）
 
 - [X] T021 [US1] 重写 `src/main/java/com/chh/autosense/config/LangChain4jConfig.java` 为外部化模型Bean及工厂/适配接线：同步/流式模型采用明确配置与maxRetries、关闭request/response logging、无效mode启动失败；接入T020的资源预校验，real配置失败不转mock。移除四条直接chat/手工JSON解析旁路、旧内联文本块和两个未使用的注解接口；固定系统规则/用户包装不能留在Java常量、注解value或拼接代码中；保留同一工厂及SDK自动结构化输出格式，不新增prompt路径环境变量或远程管理接口。（依赖 T020、T004）
 
@@ -220,7 +220,7 @@ flowchart TD
 
 1. 默认按T001至T056执行；有并行条件时，仅放开下表列出的波次及无共享写入文件的故事工作。
 2. US1和US2在共享基础完成后可以分别推进。US3使用US1的能力契约/公共路由，不能独立重造编排；US2的接口验收不依赖US1领域输出。
-3. 同一文件有多项任务时按依赖/编号串行，尤其pom.xml、application.yaml、AiServiceFactory与六prompt资源、PromptInputEncoder、LangChain4jConfig、SessionOrchestrator、SessionController、SecurityConfig及validation.md。
+3. 同一文件有多项任务时按依赖/编号串行，尤其pom.xml、application.yaml、各专用工厂与六 prompt 资源、PromptInputEncoder、LangChain4jConfig、SessionOrchestrator、SessionController、SecurityConfig及validation.md。
 4. 每个故事先写行为断言再实现模型/服务/入口，最后运行对应验收；不能以新增测试文件或旧测试勾选替代执行证据。
 5. prompt增量沿T015验收定义→T020资源/工厂→T021配置接线→T022数据编码与适配→T023错误区分→T029实际验证推进；T042/T044接入历史/日志回归，最后T053/T054审查与制品验证。T020的启动样例使用合成非null数据，不依赖尚未实施的T022编码器；按编号串行即可避免循环。
 6. 真实模型小样本为独立人工验证，缺少提供商条件时明确记录未运行，不阻断已经满足的离线代理协议验收；不能借此免除默认verify或本期必需IT。

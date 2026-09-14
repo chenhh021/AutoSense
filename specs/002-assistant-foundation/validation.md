@@ -1,5 +1,7 @@
 # Implementation validation: 002-assistant-foundation
 
+> **当前结构说明（2026-09-11）**：以下为既往验证记录，历史中的统一工厂与嵌套接口命名不再代表当前实现。现在由各专用工厂直接创建 ai 包中的独立接口代理，资源校验复用 AiServiceValidator，真实装配测试为 AiServiceAssemblyTest；最新修改与验证见 [003 validation](../003-iot-knowledge-assistant/validation.md)。原测试结果保留。
+
 Date: 2026-09-07. Branch: master. Implementation is in progress; only checked tasks are complete.
 
 ## Foundation checkpoint

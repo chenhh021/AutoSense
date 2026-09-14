@@ -94,7 +94,12 @@ src/main/java/com/chh/autosense/
 │   ├── repair/                       # 保留供005复用，不挂默认路由
 │   └── aftersales/                   # 保留供001复用
 ├── ai/
-│   ├── factory/AiServiceFactory.java # 新增，校验资源并创建四类实际代理
+│   ├── factory/                     # IntentRouterServiceFactory / EnhancedAnswerFactory /
+│   │                                # DiagnosisReasonerServiceFactory / DirectAnswerServiceFactory
+│   ├── IntentRouterService.java     # 独立 AI Service 接口，资源化提示词
+│   ├── EnhancedAnswerService.java
+│   ├── DiagnosisReasonerService.java
+│   ├── DirectAnswerService.java
 │   ├── model/                        # RoutingDecision、ProblemAnalysis、DiagnosisConclusion
 │   │   └── enums/                    # CapabilityIntent、RoutingOutcome、DiagnosisMode
 │   └── tools/                        # 现BaseTool保留，本期不向代理注册设备工具
@@ -134,7 +139,7 @@ frontend/                            # 仅核对兼容，不安排前端重做
 Controller
   -> SessionOrchestrator / UserService / DeviceRegistryService
   -> 受控短事务接纳消息 + 历史快照
-  -> IntentClassifier -> AiServiceFactory创建的路由代理
+  -> IntentClassifier -> IntentRouterServiceFactory 创建的路由代理
   -> 校验RoutingDecision -> CapabilityDispatcher
   -> 已注册AssistantCapabilityHandler（所属feature）
   -> 公共持久化收尾 -> SSE / GET补查
@@ -166,7 +171,7 @@ DiagnosticSnapshot 的对象规范及诊断/售后日志在 001 落实；RepairK
 
 ### AI Service 提示词与绑定
 
-系统资源为 intent-router.txt、problem-analysis.txt、diagnosis-reasoner.txt、direct-answer.txt；共享用户模板 conversation-input.txt 用于路由/分析/直答，diagnosis-input.txt 用于诊断。AiServiceFactory 的四个公开嵌套接口在方法上声明 `@SystemMessage(fromResource = "/prompt/对应文件.txt")` 和用户资源注解，参数逐个显式 @V。代码只保留路径、绑定名和数据编码；固定角色、任务、分类/输出语义及用户包装全部在资源中。SDK依据返回record自动生成格式约束仍保留。
+系统资源为 intent-router.txt、problem-analysis.txt、diagnosis-reasoner.txt、direct-answer.txt；共享用户模板 conversation-input.txt 用于路由/分析/直答，diagnosis-input.txt 用于诊断。ai 包中的四个独立 AI Service 接口在方法上声明 `@SystemMessage(fromResource = "/prompt/对应文件.txt")` 和用户资源注解，参数逐个显式 @V。代码只保留路径、绑定名和数据编码；固定角色、任务、分类/输出语义及用户包装全部在资源中。SDK依据返回record自动生成格式约束仍保留。
 
 LangChain4jConfig 删除四条旧低层直调及未使用的内联接口；业务适配器把同轮不可变历史与本次文本传给代理。DirectAnswerer.question 映射为 text；诊断补充 symptom/diagnostics。utils/PromptInputEncoder 使用独立Jackson writer，序列化时仅转义字符串值及键内的花括号，防止1.0.1顺序替换再次解释数据中的模板标记；不改持久化原文、共享HTTP序列化配置或历史边界。
 

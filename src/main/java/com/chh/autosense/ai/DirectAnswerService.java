@@ -6,6 +6,11 @@ import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 
 public interface DirectAnswerService {
+    @SystemMessage(fromResource = "/prompt/knowledge-direct-answer.txt")
+    @UserMessage(fromResource = "/prompt/knowledge-direct-input.txt")
+    TokenStream answerKnowledge(@V("history") String history, @V("text") String text,
+                                @V("answerContext") String answerContext);
+
     @SystemMessage(fromResource = "/prompt/direct-answer.txt")
     @UserMessage(fromResource = "/prompt/conversation-input.txt")
     TokenStream answer(@V("history") String history, @V("text") String text);

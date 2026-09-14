@@ -18,6 +18,15 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AiCallLogTest {
+    @Test void knowledgeFallbackTerminatesDiagnosticWithoutFailureAndRejectsLateSuccess() {
+        try (var logs = new LogCaptureSupport()) {
+            var call = AiCallLog.start("enhancedAnswer");
+            call.skipped("LOW_RELEVANCE");
+            call.completed(); call.failed(new IllegalStateException("secret-evidence"));
+            assertThat(logs.rendered()).contains("AI call skipped", "reasonCode=LOW_RELEVANCE", "elapsedMs=")
+                    .doesNotContain("AI call failed", "AI call completed", "secret-evidence");
+        }
+    }
     @Test void unwrapsFailuresWithoutInspectingOrLoggingSensitiveMessages() {
         Map<String, Throwable> failures = Map.of(
                 "DNS", new UnknownHostException("secret-host"),

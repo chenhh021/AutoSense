@@ -56,7 +56,7 @@ LangChain4j 1.0.1按变量顺序连续String.replace，普通@V加普通JSON序�
 
 ## 4. 装配与失败语义
 
-真实模式下，AiServiceFactory在创建/发布四个代理前执行本地预校验，可用工厂私有辅助方法完成，不新增prompt服务平台。校验读取四个实际接口的方法注解，不能只检查另列的文件名后漏掉错误引用：
+真实模式下，各专用工厂在创建/发布对应代理前调用 utils/AiServiceValidator 执行本地预校验，不新增统一工厂或 prompt 服务平台。校验读取四个实际接口的方法注解，不能只检查另列的文件名后漏掉错误引用：
 
 1. 两类注解均使用上述固定/prompt/路径，无内联value；引用不得由用户输入、工作目录或操作系统路径决定。
 2. 使用与SDK一致的接口Class.getResourceAsStream读取classpath流并关闭；不调用getFile转换磁盘路径，保证Boot JAR可用。
@@ -72,7 +72,7 @@ LangChain4j 1.0.1按变量顺序连续String.replace，普通@V加普通JSON序�
 
 ## 5. 验收与打包
 
-扩展已规划的AiServiceFactoryTest、LlmConfigurationTest、LangChain4jDirectAnswererTest及公共日志/历史验收，不只断言资源文件或注解存在：
+扩展已规划的AiServiceAssemblyTest、LlmConfigurationTest、LangChain4jDirectAnswererTest及公共日志/历史验收，不只断言资源文件或注解存在：
 
 - 模型协议用已有WireMock，实际调用四类生产AI Service。捕获系统与用户消息，检查资源规则生效、系统不含运行时标记、正确绑定JSON值及当前消息一次；覆盖同步record解析和TokenStream成功/错误/同步完成。
 - 数据包含中文、换行、引号、反斜杠、字面 {{text}}/{{history}}/{{current_date}}、设备名及历史中的伪系统指令；解码后的值保持原样，跨轮历史/当前边界不变，SDK自动格式后缀按其职责保留。

@@ -32,7 +32,7 @@
 - 流式代理单独配置 streamingChatModel，返回 TokenStream；使用 onPartialResponse、onCompleteResponse、onError、start。
 - 既有 DirectAnswerer 的 CompletionStage 外部契约可由 TokenStream 适配，不假设 1.0.1 原生支持任意异步返回类型。
 - 工厂接管四条调用的创建/执行契约；诊断提示、规则、维修检索与知识咨询业务仍归所属 feature。ProblemAnalysis、DiagnosisConclusion 按用途迁至 ai/model，不改变它们现有语义。
-- ai/factory 中可用一个 AiServiceFactory 管理四类代理，并以内嵌公开接口定义服务方法，避免无必要的新包和逐类工厂。所有受管对象由 Spring 注入。
+- ai/factory 中由 IntentRouterServiceFactory、EnhancedAnswerFactory、DiagnosisReasonerServiceFactory、DirectAnswerServiceFactory 分别创建对应代理；服务接口独立位于 ai 包。调用方需要实例时直接使用对应工厂方法，不设置统一中间工厂。所有受管对象由 Spring 注入。
 
 **Evidence**: [AiServices 1.0.1 官方源码](https://raw.githubusercontent.com/langchain4j/langchain4j/1.0.1/langchain4j/src/main/java/dev/langchain4j/service/AiServices.java)已浏览核验；[DefaultAiServices](https://github.com/langchain4j/langchain4j/blob/1.0.1/langchain4j/src/main/java/dev/langchain4j/service/DefaultAiServices.java)、[TokenStream](https://github.com/langchain4j/langchain4j/blob/1.0.1/langchain4j/src/main/java/dev/langchain4j/service/TokenStream.java)、[ServiceOutputParser](https://github.com/langchain4j/langchain4j/blob/1.0.1/langchain4j/src/main/java/dev/langchain4j/service/output/ServiceOutputParser.java)能力以本地 Maven 缓存中的 1.0.1 sources.jar 核验，链接为对应官方版本定位。无需依赖最新文档中的新增 API。
 
@@ -204,7 +204,7 @@
 
 ## R14 — 提示词资源、启动校验与变量数据编码
 
-**Decision**: 在src/main/resources/prompt/定义四个系统资源与两个共享用户包装资源；AiServiceFactory四个公开嵌套接口在方法上分别声明@SystemMessage(fromResource)与@UserMessage(fromResource)，路径统一为/prompt/文件名。固定规则从LangChain4jConfig移出，真实调用继续经过AI Service；资源清单和语义见[prompt契约](contracts/prompt-contract.md)。
+**Decision**: 在src/main/resources/prompt/定义四个系统资源与两个共享用户包装资源；ai 包中的四个独立 AI Service 接口在方法上分别声明@SystemMessage(fromResource)与@UserMessage(fromResource)，路径统一为/prompt/文件名。固定规则从LangChain4jConfig移出，真实调用继续经过AI Service；资源清单和语义见[prompt契约](contracts/prompt-contract.md)。
 
 **Rationale**: 当前四条实际低层调用把规则/用户/历史拼成Java文本块，两个内嵌注解接口未被使用。固定1.0.1在调用阶段prepareSystemMessage/prepareUserMessage读取资源，build不校验；系统注解仅检查方法。资源提取通过接口Class.getResourceAsStream，使用未显式指定字符集的Scanner。资源化不能只新增文件或假定Bean创建成功即验证通过。
 

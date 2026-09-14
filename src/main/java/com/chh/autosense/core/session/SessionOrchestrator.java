@@ -78,6 +78,7 @@ public class SessionOrchestrator {
     private final DiagnosticSnapshotMapper snapshotMapper;
     private final ObjectMapper objectMapper;
     private final ScheduledExecutorService scheduler;
+    private final List<AcceptedConversationInitializer> initializers;
 
     public SessionOrchestrator(SessionProcessingService processing,
                                ConversationHistoryService historyService,
@@ -90,7 +91,8 @@ public class SessionOrchestrator {
                                RepairSessionMapper sessionMapper,
                                ChatMessageMapper messageMapper,
                                DiagnosticSnapshotMapper snapshotMapper,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+                               List<AcceptedConversationInitializer> initializers) {
         this.processing = processing;
         this.historyService = historyService;
         this.intentClassifier = intentClassifier;
@@ -103,6 +105,7 @@ public class SessionOrchestrator {
         this.messageMapper = messageMapper;
         this.snapshotMapper = snapshotMapper;
         this.objectMapper = objectMapper;
+        this.initializers = List.copyOf(initializers);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "session-processing-guard");
             thread.setDaemon(true);
@@ -215,6 +218,9 @@ public class SessionOrchestrator {
     private void process(AuthUser user, Accepted accepted, SseEventStream stream) {
         Guard guard = new Guard(accepted, stream);
         try (var ignored = LogContextUtils.install(accepted.logContext())) {
+            for (AcceptedConversationInitializer initializer : initializers) {
+                initializer.initialize(user);
+            }
             SessionStatus previous = accepted.previousStatus();
             if (previous.isAwaitingUser() && previous != SessionStatus.CLARIFYING) {
                 continueWaiting(user, accepted, stream, guard, previous);
@@ -380,6 +386,7 @@ public class SessionOrchestrator {
                 } else {
                     log.debug("Stale callback ignored: sessionId={}, messageId={}",
                             accepted.sessionId(), accepted.messageId());
+                    stream.complete();
                 }
                 guard.complete();
             }
@@ -393,6 +400,7 @@ public class SessionOrchestrator {
                 } else {
                     log.debug("Stale callback ignored: sessionId={}, messageId={}",
                             accepted.sessionId(), accepted.messageId());
+                    stream.complete();
                 }
                 guard.complete();
             }
