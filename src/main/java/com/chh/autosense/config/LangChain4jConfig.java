@@ -12,7 +12,7 @@ import java.time.Duration;
 /**
  * LangChain4j 装配（research R2/R14，章程原则 IV/V）：
  * 外部化同步/流式模型 Bean，显式 maxRetries 并关闭请求/响应原文日志；
- * 四个真实 AI Service 代理由各自的 ServiceFactory（IntentRouterServiceFactory、
+ * 四个真实 AI Service 代理由各自的 ServiceFactory（IntentPlannerServiceFactory、
  * ProblemAnalysisServiceFactory、DiagnosisReasonerServiceFactory、DirectAnswerServiceFactory）
  * 装配并完成对应 prompt 资源本地校验，调用方经工厂方法新建代理，不共享单例。
  * 固定系统规则与用户包装全部位于 src/main/resources/prompt/ 资源，
@@ -25,33 +25,42 @@ import java.time.Duration;
 public class LangChain4jConfig {
 
     @Bean
-    public OpenAiChatModel chatModel(LlmProperties props) {
+    public dev.langchain4j.model.chat.ChatModel chatModel(LlmProperties props) {
         log.info("AI model configured: provider=OPENAI_COMPATIBLE, streaming=false, timeoutSeconds={}, maxRetries={}",
                 props.timeoutSeconds(), props.maxRetries());
-        return OpenAiChatModel.builder()
+        return new dev.langchain4j.model.chat.ChatModel() {
+            @Override public dev.langchain4j.model.chat.response.ChatResponse doChat(dev.langchain4j.model.chat.request.ChatRequest request) {
+                return OpenAiChatModel.builder()
                 .baseUrl(props.baseUrl())
                 .apiKey(props.apiKey())
                 .modelName(props.modelName())
                 .temperature(props.temperature())
-                .timeout(Duration.ofSeconds(props.timeoutSeconds()))
-                .maxRetries(props.maxRetries())
+                .timeout(com.chh.autosense.graph.node.AttemptCalls.limit(Duration.ofSeconds(props.timeoutSeconds())))
+                .maxRetries(0)
                 .logRequests(false)
                 .logResponses(false)
-                .build();
+                .build().chat(request);
+            }
+        };
     }
 
     @Bean
-    public OpenAiStreamingChatModel streamingChatModel(LlmProperties props) {
+    public dev.langchain4j.model.chat.StreamingChatModel streamingChatModel(LlmProperties props) {
         log.info("AI model configured: provider=OPENAI_COMPATIBLE, streaming=true, timeoutSeconds={}",
                 props.timeoutSeconds());
-        return OpenAiStreamingChatModel.builder()
+        return new dev.langchain4j.model.chat.StreamingChatModel() {
+            @Override public void doChat(dev.langchain4j.model.chat.request.ChatRequest request,
+                    dev.langchain4j.model.chat.response.StreamingChatResponseHandler handler) {
+                OpenAiStreamingChatModel.builder()
                 .baseUrl(props.baseUrl())
                 .apiKey(props.apiKey())
                 .modelName(props.modelName())
                 .temperature(props.temperature())
-                .timeout(Duration.ofSeconds(props.timeoutSeconds()))
+                .timeout(com.chh.autosense.graph.node.AttemptCalls.limit(Duration.ofSeconds(props.timeoutSeconds())))
                 .logRequests(false)
                 .logResponses(false)
-                .build();
+                .build().chat(request, handler);
+            }
+        };
     }
 }

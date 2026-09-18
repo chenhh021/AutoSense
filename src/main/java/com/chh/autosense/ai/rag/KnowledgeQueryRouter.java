@@ -46,8 +46,11 @@ public final class KnowledgeQueryRouter implements QueryRouter {
     }
 
     public static void checkDeadline(KnowledgeAnswerRequest request) {
-        if (Thread.currentThread().isInterrupted() || request.deadlineEpochMillis() <= System.currentTimeMillis())
-            throw new ApiException(ErrorCode.REQUEST_TIMEOUT, "知识咨询处理超时，请重试。");
+        if (Thread.currentThread().isInterrupted() || request.deadlineEpochMillis() <= System.currentTimeMillis()) {
+            var failure = new ApiException(ErrorCode.REQUEST_TIMEOUT, "知识咨询处理超时，请重试。");
+            failure.initCause(new java.util.concurrent.TimeoutException("Knowledge retrieval deadline exceeded"));
+            throw failure;
+        }
     }
 
     @Override public Collection<ContentRetriever> route(Query query) {
@@ -56,7 +59,7 @@ public final class KnowledgeQueryRouter implements QueryRouter {
         long started = System.nanoTime();
         List<Content> candidates;
         try {
-            candidates = Objects.requireNonNull(retriever.retrieve(query));
+            candidates = retrieve(query);
             checkDeadline(request);
             for (Content content : candidates) validateContent(content, type);
         } catch (RuntimeException e) {
@@ -72,6 +75,23 @@ public final class KnowledgeQueryRouter implements QueryRouter {
         log.info("Knowledge retrieval completed: operation=retrieve, candidates={}, accepted={}, elapsedMs={}",
                 candidates.size(), hits.size(), (System.nanoTime() - started) / 1_000_000);
         return List.of(ignored -> hits);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Content> retrieve(Query query) {
+        com.chh.autosense.graph.node.AttemptCalls attempt;
+        try { attempt = com.chh.autosense.graph.node.AttemptCalls.current(); }
+        catch (IllegalStateException e) { return Objects.requireNonNull(retriever.retrieve(query)); }
+        try {
+            var cached = (List<Map<String, Object>>) attempt.call("knowledge-retrieval", remaining ->
+                    Objects.requireNonNull(retriever.retrieve(query)).stream().map(content -> Map.of(
+                            "text", content.textSegment().text(), "metadata", content.textSegment().metadata().toMap(),
+                            "score", content.metadata().get(ContentMetadata.SCORE))).toList());
+            return cached.stream().map(row -> Content.from(dev.langchain4j.data.segment.TextSegment.from((String) row.get("text"),
+                    new dev.langchain4j.data.document.Metadata((Map<String, Object>) row.get("metadata"))),
+                    Map.of(ContentMetadata.SCORE, row.get("score")))).toList();
+        } catch (RuntimeException e) { throw e; }
+        catch (Exception e) { throw new java.util.concurrent.CompletionException(e); }
     }
 
     private static KnowledgeInsufficientException insufficient(KnowledgeDirectAnswerReason reason) {

@@ -48,3 +48,10 @@ Thumbs.db
 node_modules/
 dist/
 .gradle/
+
+### Local Python validation helpers ###
+__pycache__/
+*.pyc
+.venv/
+# Local validation evidence retained across Maven clean builds.
+.validation/

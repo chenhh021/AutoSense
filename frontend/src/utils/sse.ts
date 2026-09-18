@@ -14,6 +14,12 @@ interface PostSseOptions {
   signal?: AbortSignal
 }
 
+export class SseRequestError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message)
+  }
+}
+
 /**
  * 基于 fetch ReadableStream 的 POST SSE 请求工具。
  * 后端的创建会话 / 发送消息接口返回 text/event-stream，
@@ -25,6 +31,7 @@ export async function postSSE(url: string, body: unknown, options: PostSseOption
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
@@ -34,19 +41,20 @@ export async function postSSE(url: string, body: unknown, options: PostSseOption
     if (res.status === 401) {
       window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT))
     }
-    throw new Error(`请求失败：${res.status} ${res.statusText}`)
+    const error = await res.json().catch(() => null)
+    throw new SseRequestError(res.status, error?.data?.message || error?.message || `请求失败：${res.status}`)
   }
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
 
-  for (;;) {
+  try { for (;;) {
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
     // SSE 事件之间以空行分隔
-    const parts = buffer.split('\n\n')
+    const parts = buffer.split(/\r?\n\r?\n/)
     buffer = parts.pop() ?? ''
     for (const part of parts) {
       const event = parseEvent(part)
@@ -54,8 +62,12 @@ export async function postSSE(url: string, body: unknown, options: PostSseOption
     }
   }
   // 处理流结束时缓冲区中残留的事件
-  const last = parseEvent(buffer)
+  const last = parseEvent(buffer + decoder.decode())
   if (last) options.onEvent(last)
+  } finally {
+    await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
 }
 
 /** 解析单个 SSE 事件块（event: / data: 行） */
@@ -64,7 +76,7 @@ function parseEvent(raw: string): SseEvent | null {
   if (!trimmed) return null
   let event: string | undefined
   const dataLines: string[] = []
-  for (const line of trimmed.split('\n')) {
+  for (const line of trimmed.split(/\r?\n/)) {
     if (line.startsWith('event:')) {
       event = line.slice('event:'.length).trim()
     } else if (line.startsWith('data:')) {

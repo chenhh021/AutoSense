@@ -30,6 +30,11 @@ public enum ErrorCode {
     AI_SERVICE_UNAVAILABLE(40015, "AI service unavailable"),
     CAPABILITY_NOT_AVAILABLE(40016, "Capability not available"),
     DEVICE_SERVICE_UNAVAILABLE(40017, "Device service unavailable"),
+    WORKFLOW_BUSY(40018, "Workflow is busy"),
+    VERSION_CONFLICT(40019, "Workflow version conflict"),
+    WORKFLOW_NOT_RESUMABLE(40020, "Workflow cannot be resumed"),
+    APPROVAL_SCOPE_MISMATCH(40021, "Approval scope mismatch"),
+    WORKFLOW_CLAIM_LOST(40022, "Workflow execution claim lost"),
     INTERNAL_ERROR(50000, "Internal error");
 
     /**
@@ -67,7 +72,8 @@ public enum ErrorCode {
             case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
             case FORBIDDEN, DEVICE_FORBIDDEN -> HttpStatus.FORBIDDEN;
             case USER_NOT_FOUND, SESSION_NOT_FOUND, DEVICE_NOT_FOUND -> HttpStatus.NOT_FOUND;
-            case ACCOUNT_EXISTS, DEVICE_ALREADY_BOUND, DEVICE_BUSY, SESSION_BUSY, CONTEXT_EXPIRED ->
+            case ACCOUNT_EXISTS, DEVICE_ALREADY_BOUND, DEVICE_BUSY, SESSION_BUSY, CONTEXT_EXPIRED,
+                    WORKFLOW_BUSY, VERSION_CONFLICT, WORKFLOW_NOT_RESUMABLE, APPROVAL_SCOPE_MISMATCH, WORKFLOW_CLAIM_LOST ->
                     HttpStatus.CONFLICT;
             case UNSUPPORTED_DEVICE_TYPE, DEVICE_UNREACHABLE -> HttpStatus.UNPROCESSABLE_ENTITY;
             case REQUEST_TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;

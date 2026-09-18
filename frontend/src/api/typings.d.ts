@@ -17,6 +17,20 @@ declare namespace API {
     distanceMeters?: number;
   };
 
+  type approvalParams = {
+    sessionId: number;
+    requestId: string;
+  };
+
+  type ApprovalView = {
+    approvalId?: string;
+    stepId?: string;
+    prompt?: string;
+    expiresAt?: string;
+    operation?: string;
+    parameters?: Record<string, any>;
+  };
+
   type BaseResponseDeviceView = {
     code?: number;
     data?: DeviceView;
@@ -33,6 +47,11 @@ declare namespace API {
     code?: number;
     data?: UserView;
     message?: string;
+  };
+
+  type cancelParams = {
+    sessionId: number;
+    requestId: string;
   };
 
   type ChatMessageView = {
@@ -52,6 +71,35 @@ declare namespace API {
 
   type CreateSessionRequest = {
     problem: string;
+  };
+
+  type Data = {
+    eventId?: string;
+    sequence?: number;
+    requestId?: string;
+    conversationId?: number;
+    stepId?: string;
+    stepType?:
+      | "KNOWLEDGE_CONSULT"
+      | "DEVICE_QUERY"
+      | "FAULT_DIAGNOSIS"
+      | "DEVICE_CONTROL";
+    status?:
+      | "CREATED"
+      | "PLANNING"
+      | "VALIDATING"
+      | "RUNNING"
+      | "WAITING_APPROVAL"
+      | "WAITING_INPUT"
+      | "RETRYING"
+      | "WAITING_RESUME"
+      | "COMPLETED"
+      | "FAILED"
+      | "REJECTED"
+      | "CANCELLED";
+    progress?: Progress;
+    version?: number;
+    payload?: Record<string, any>;
   };
 
   type deleteUsingDELETEParams = {
@@ -82,10 +130,6 @@ declare namespace API {
     includeDisabled?: boolean;
   };
 
-  type listMessagesParams = {
-    sessionId: number;
-  };
-
   type LoginRequest = {
     /** 用户登录账号 */
     userAccount: string;
@@ -105,10 +149,23 @@ declare namespace API {
   type MessageRequest = {
     content?: string;
     confirmRepair?: boolean;
+    inputRequestId?: string;
+    expectedVersion?: number;
+  };
+
+  type messagesParams = {
+    sessionId: number;
   };
 
   type postMessageParams = {
     sessionId: number;
+  };
+
+  type Progress = {
+    total?: number;
+    completed?: number;
+    skipped?: number;
+    notExecuted?: number;
   };
 
   type RegisterDeviceRequest = {
@@ -125,6 +182,11 @@ declare namespace API {
     confirmPassword: string;
   };
 
+  type resumeParams = {
+    sessionId: number;
+    requestId: string;
+  };
+
   type SessionListItemView = {
     sessionId?: number;
     status?: string;
@@ -139,6 +201,7 @@ declare namespace API {
     reply?: string;
     awaitingInput?: boolean;
     conclusion?: ConclusionDto;
+    workflow?: WorkflowView;
   };
 
   type setStatusParams = {
@@ -154,6 +217,35 @@ declare namespace API {
     timeout?: number;
   };
 
+  type StepView = {
+    stepId?: string;
+    type?:
+      | "KNOWLEDGE_CONSULT"
+      | "DEVICE_QUERY"
+      | "FAULT_DIAGNOSIS"
+      | "DEVICE_CONTROL";
+    status?:
+      | "PENDING"
+      | "RUNNING"
+      | "WAITING_APPROVAL"
+      | "RETRYING"
+      | "COMPLETED"
+      | "SKIPPED"
+      | "FAILED"
+      | "REJECTED"
+      | "NOT_EXECUTED";
+    result?: Record<string, any>;
+    failureCode?: string;
+    commandExecutionId?: string;
+    resultCertainty?:
+      | "NOT_SENT"
+      | "IN_FLIGHT"
+      | "SUCCEEDED"
+      | "FAILED"
+      | "UNKNOWN";
+    retriesUsed?: number;
+  };
+
   type UserView = {
     /** 用户唯一标识 */
     id?: number;
@@ -167,5 +259,59 @@ declare namespace API {
     userProfile?: string;
     /** 用户角色 */
     userRole?: "user" | "admin";
+  };
+
+  type WorkflowApprovalRequest = {
+    stepId: string;
+    approvalId: string;
+    approved: boolean;
+    expectedVersion: number;
+  };
+
+  type WorkflowCancelRequest = {
+    expectedVersion: number;
+  };
+
+  type WorkflowEvent = {
+    type?: string;
+    code?: string;
+    message?: string;
+    data?: Data;
+  };
+
+  type workflowParams = {
+    sessionId: number;
+    requestId: string;
+  };
+
+  type WorkflowResumeRequest = {
+    expectedVersion: number;
+  };
+
+  type WorkflowView = {
+    requestId?: string;
+    conversationId?: number;
+    status?:
+      | "CREATED"
+      | "PLANNING"
+      | "VALIDATING"
+      | "RUNNING"
+      | "WAITING_APPROVAL"
+      | "WAITING_INPUT"
+      | "RETRYING"
+      | "WAITING_RESUME"
+      | "COMPLETED"
+      | "FAILED"
+      | "REJECTED"
+      | "CANCELLED";
+    currentStep?: number;
+    progress?: Progress;
+    version?: number;
+    canResume?: boolean;
+    steps?: StepView[];
+    approval?: ApprovalView;
+    failureCode?: string;
+    inputRequestId?: string;
+    prompt?: string;
   };
 }

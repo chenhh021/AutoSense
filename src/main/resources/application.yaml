@@ -31,11 +31,13 @@ logging:
     com.chh.autosense: ${LOGGING_LEVEL_COM_CHH_AUTOSENSE:INFO}
     dev.langchain4j: 'OFF'
     dev.ai4j: 'OFF'
+    org.bsc.langgraph4j: 'OFF'
+    org.bsc.async: 'OFF'
     org.apache.hc.client5.http.wire: 'OFF'
     org.apache.http.wire: 'OFF'
     reactor.netty.http.client: 'OFF'
   pattern:
-    console: ${LOGGING_PATTERN_CONSOLE:%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t %notEmpty{[requestId=%X{requestId}, userId=%X{userId}, sessionId=%X{sessionId}, messageId=%X{messageId}, round=%X{round}, deviceId=%X{deviceId}] }%m%n%ex}
+    console: ${LOGGING_PATTERN_CONSOLE:%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t %workflowContext%m%n%ex}
 
 server:
   port: 8180
@@ -61,6 +63,21 @@ knife4j:
 
 # ===== AutoSense 外部服务配置(章程原则 V:全部经环境变量注入,禁止硬编码凭据)=====
 autosense:
+  graph:
+    mode: ${AUTOSENSE_GRAPH_MODE:real}
+    max-plan-steps: ${GRAPH_MAX_PLAN_STEPS:8}
+    planner-timeout-seconds: ${GRAPH_PLANNER_TIMEOUT_SECONDS:120}
+    step-timeout-seconds:
+      '[KNOWLEDGE_CONSULT]': ${GRAPH_KNOWLEDGE_TIMEOUT_SECONDS:150}
+      '[FAULT_DIAGNOSIS]': ${GRAPH_DIAGNOSIS_TIMEOUT_SECONDS:150}
+      '[DEVICE_QUERY]': ${GRAPH_QUERY_TIMEOUT_SECONDS:30}
+      '[DEVICE_CONTROL]': ${GRAPH_CONTROL_TIMEOUT_SECONDS:30}
+    max-retries: ${GRAPH_MAX_RETRIES:2}
+    retry-delay-millis: ${GRAPH_RETRY_DELAY_MILLIS:1000}
+    approval-ttl-seconds: ${GRAPH_APPROVAL_TTL_SECONDS:300}
+    expensive-step-threshold-seconds: ${GRAPH_EXPENSIVE_STEP_THRESHOLD_SECONDS:30}
+    execution-slice-timeout-seconds: ${GRAPH_EXECUTION_SLICE_TIMEOUT_SECONDS:300}
+    max-graph-iterations: ${GRAPH_MAX_ITERATIONS:256}
   cors:
     # 浏览器前端来源白名单，逗号分隔；生产环境必须用实际 HTTPS 站点覆盖
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:8080}
@@ -75,11 +92,6 @@ autosense:
     max-retries: ${LLM_MAX_RETRIES:0}
     # 仅支持 mock/real；当前默认使用真实 LangChain4j 模型，本地桩请显式设置 LLM_MODE=mock
     mode: ${LLM_MODE:real}
-  assistant:
-    processing-timeout-seconds: ${ASSISTANT_PROCESSING_TIMEOUT_SECONDS:300}
-    session-lease-seconds: ${ASSISTANT_SESSION_LEASE_SECONDS:180}
-    session-renew-seconds: ${ASSISTANT_SESSION_RENEW_SECONDS:10}
-    context-ttl-seconds: ${ASSISTANT_CONTEXT_TTL_SECONDS:1800}
   device-service:
     # deviceSimulator(外部已有服务,接口契约见仓库根《后端接口说明.md》;2026-08-27 起为唯一设备交互实现)
     base-url: ${DEVICE_SERVICE_BASE_URL:http://localhost:8080}
@@ -157,7 +169,7 @@ autosense:
           display-name: 彩光灯泡
           state-fields: [ brightness, color ]
           commands: [ set_brightness, set_color ]
-      # 探测(读 state)免确认;下列命令均为改变设备状态的操作,必经用户确认(FR-008)
+      # 对话中的设备读取和状态变更都必须通过对应步骤的独立确认。
       fault-rules:
         - name: 设备已停止
           when: "running_status == 'stopped'"

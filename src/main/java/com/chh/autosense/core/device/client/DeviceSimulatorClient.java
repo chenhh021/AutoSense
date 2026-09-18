@@ -32,8 +32,15 @@ public class DeviceSimulatorClient implements DeviceServiceClient {
 
     @Autowired
     public DeviceSimulatorClient(DeviceServiceProperties props, RestClient.Builder builder) {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         int timeoutMs = (props.timeoutSeconds() == null ? 10 : props.timeoutSeconds()) * 1000;
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+            @Override protected void prepareConnection(java.net.HttpURLConnection connection, String method) throws java.io.IOException {
+                super.prepareConnection(connection, method);
+                long remaining = com.chh.autosense.graph.node.AttemptCalls.limit(Duration.ofMillis(timeoutMs)).toMillis();
+                int bounded = (int) Math.max(1, Math.min(timeoutMs, remaining));
+                connection.setConnectTimeout(bounded); connection.setReadTimeout(bounded);
+            }
+        };
         factory.setConnectTimeout(Duration.ofMillis(timeoutMs));
         factory.setReadTimeout(Duration.ofMillis(timeoutMs));
         this.client = builder
@@ -65,6 +72,9 @@ public class DeviceSimulatorClient implements DeviceServiceClient {
         } catch (HttpClientErrorException e) {
             logCall("getState", "REJECTED", startedNanos);
             throw new DeviceUnreachableException("设备状态读取失败: " + simulatorMessage(e));
+        } catch (RestClientException e) {
+            logCall("getState", "UNAVAILABLE", startedNanos);
+            throw e;
         }
     }
 
@@ -91,6 +101,9 @@ public class DeviceSimulatorClient implements DeviceServiceClient {
             logCall("executeCommand", "REJECTED", startedNanos);
             // 失败即停(FR-017):如实透传模拟器错误,不重试
             return new RepairResult(false, simulatorMessage(e));
+        } catch (RestClientException e) {
+            logCall("executeCommand", "UNAVAILABLE", startedNanos);
+            throw e;
         }
     }
 

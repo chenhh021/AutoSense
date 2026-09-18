@@ -22,5 +22,8 @@ public class ChatMessage {
     private Long sessionId;
     private String role;
     private String content;
+    private String workflowRequestId;
+    private String stepId;
+    private String outputKey;
     private LocalDateTime createdAt;
 }

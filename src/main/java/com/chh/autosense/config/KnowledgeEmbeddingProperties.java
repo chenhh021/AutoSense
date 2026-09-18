@@ -16,12 +16,12 @@ public record KnowledgeEmbeddingProperties(
     public KnowledgeEmbeddingProperties {
         if ((!"openai-compatible".equals(provider) && !"mock".equals(provider))
                 || (dimensions != null && dimensions <= 0) || timeoutSeconds <= 0
-                || maxRetries < 0 || maxRetries > 3 || maxSegmentsPerBatch <= 0) {
+                || maxRetries != 0 || maxSegmentsPerBatch <= 0) {
             throw new IllegalArgumentException("Invalid knowledge embedding configuration");
         }
     }
 
-    public void validate(LlmProperties llm, AssistantProperties assistant) {
+    public void validate(LlmProperties llm, GraphProperties graph) {
         if ("mock".equals(provider)) {
             if (!"mock".equals(llm.mode())) throw new IllegalArgumentException("Mock embedding requires mock AI mode");
         } else {
@@ -37,11 +37,8 @@ public record KnowledgeEmbeddingProperties(
                 throw new IllegalArgumentException("Real knowledge embedding connection is not configured");
             }
         }
-        long budget = 3L * llm.timeoutSeconds() * (llm.maxRetries() + 1L)
-                + (long) timeoutSeconds * (maxRetries + 1L) + 5;
-        if (budget >= assistant.processingTimeoutSeconds()) {
-            throw new IllegalArgumentException("Knowledge AI call budget must be shorter than the processing deadline");
-        }
+        // Each call is clamped to the graph attempt's remaining deadline; startup has its own document budget.
+        java.util.Objects.requireNonNull(graph);
     }
 
     @Override public String toString() { return "KnowledgeEmbeddingProperties[redacted]"; }

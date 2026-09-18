@@ -6,7 +6,6 @@ import com.chh.autosense.ai.factory.DirectAnswerServiceFactory;
 import com.chh.autosense.ai.factory.EnhancedAnswerFactory;
 import com.chh.autosense.config.KnowledgeProperties;
 import com.chh.autosense.core.security.AuthUser;
-import com.chh.autosense.core.session.AcceptedConversationInitializer;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
@@ -17,7 +16,7 @@ import java.util.Objects;
 /** One userId-only cache. Eviction drops a reference, never closes shared models or in-flight calls. */
 @Component
 @lombok.extern.slf4j.Slf4j
-public class UserAiServiceCache implements AcceptedConversationInitializer {
+public class UserAiServiceCache {
     private final Cache<Long, UserAiServices> cache;
     private final DirectAnswerServiceFactory directFactory;
     private final EnhancedAnswerFactory enhancedFactory;
@@ -35,8 +34,6 @@ public class UserAiServiceCache implements AcceptedConversationInitializer {
         cache = Caffeine.newBuilder().maximumSize(properties.serviceCache().maximumSize())
                 .expireAfterAccess(properties.serviceCache().expireAfterAccess()).ticker(ticker).build();
     }
-
-    @Override public void initialize(AuthUser user) { getOrCreate(user); }
 
     public UserAiServices getOrCreate(AuthUser user) {
         if (user == null || user.userId() == null || user.userId() <= 0)

@@ -9,6 +9,10 @@ public record SessionResponse(
         String status,
         String reply,
         boolean awaitingInput,
-        ConclusionDto conclusion
+        ConclusionDto conclusion,
+        com.chh.autosense.domain.vo.WorkflowView workflow
 ) {
+    public SessionResponse(Long sessionId, String status, String reply, boolean awaitingInput, ConclusionDto conclusion) {
+        this(sessionId, status, reply, awaitingInput, conclusion, null);
+    }
 }

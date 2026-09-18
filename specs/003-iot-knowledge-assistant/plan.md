@@ -4,6 +4,8 @@
 
 **Input**: 2026-09-11 FR-003/FR-008 修订：信息不足时使用同类型另一型号资料并声明依据；移除统一工厂，由各专用工厂直接创建服务，缓存键仅 userId。保留 ai/rag 最少文件、启动一次共享索引及 EnhancedAnswerFactory 内嵌 Advanced RAG。
 
+**2026-09-15 接入修订**：公共编排以[002计划](../002-assistant-foundation/plan.md)为准。知识业务已抽取至KnowledgeWorkflowService，由graph知识节点调用；旧编排与初始化协作者已删除。保留专用工厂、userId缓存、RAG及知识来源能力。ChatMemory会话隔离、步骤预算和恢复由002统一负责，不在用户缓存代理中保存请求状态。本期接入证据见[002验证记录](../002-assistant-foundation/validation-langgraph.md)，下文旧验证记录保留原日期。
+
 ## Summary
 
 知识导入直接产出 Spring 单例 EmbeddingStore<TextSegment>，本期实现为 InMemoryEmbeddingStore。每应用实例启动完整导入一次，之后所有 AI Service 共用且只查询；“静态”指固定共享生命周期，不增加可变 public static 字段。
@@ -23,12 +25,12 @@ UserAiServiceCache 直接注入 DirectAnswerServiceFactory 与 EnhancedAnswerFac
 **Target Platform**: Windows/Linux Java 21 Spring Boot 可执行 JAR；每应用实例一份索引。
 **Project Type**: 同仓库 Web 应用，本次仅修订后端设计。
 **Performance Goals**: 每实例启动完整导入一次；常识/类型未知零查询；可检索轮次最多一次 query embedding/search；缓存命中零代理重建；单缓存最多 1000 个用户组合，访问后 30m 过期。topK=4、门槛初始 0.75，真实模型质量待校准。
-**Constraints**: 索引完整可用后服务才能启动成功；不装配 ChatMemory 或设备工具；代理不能保存请求历史、证据、回调。沿用 AssistantProperties 的实际绝对截止，当前 application.yaml 默认 300 秒，不改回旧计划的 120 秒，也不延长截止。
+**Constraints**: 索引完整可用后服务才能启动成功；用户缓存代理不装配可变 ChatMemory 或设备工具，也不保存请求历史、证据、回调。GraphChatMemoryAdapter 为每次执行生成会话快照；GraphProperties 管理步骤与执行区间预算，KnowledgeWorkflowService 接收本步骤绝对截止并向检索和模型调用传递剩余预算。
 **Scale/Scope**: 初期复用 light/MI-MJDPL01YL 两份 Markdown；保留已有配置上限：32 MiB、10000 段、启动预算 300 秒、分段 1000/150 字符。排除热更新、在线搜索、上传后台、外部数据库实现及设备操作。
 
 ## Constitution Check
 
-依据 [constitution.md](../../.specify/memory/constitution.md) v2.3.0。
+依据 [constitution.md](../../.specify/memory/constitution.md) v2.3.1；本次仅同步已授权的graph目录与旧编排移除要求。
 
 | Gate | 研究前 | 设计后 |
 | --- | --- | --- |
@@ -78,9 +80,9 @@ src/main/java/com/chh/autosense/
 │   └── model/                              # KnowledgeQueryAnalysis/KnowledgeAnswer，AI enum
 ├── config/                                 # 复用 KnowledgeProperties/EmbeddingProperties/EmbeddingConfig
 ├── service/knowledge/
-│   └── UserAiServiceCache.java              # 单个按 userId 的缓存，兼任接纳后初始化协作者
-├── core/routing/
-│   └── KnowledgeCapabilityHandler.java      # 分支、调用、来源校验，复用公共收尾
+│   ├── UserAiServiceCache.java              # 单个按 userId 的缓存，接纳后初始化
+│   └── KnowledgeWorkflowService.java        # 直接/增强回答、范围和来源校验
+├── graph/node/                             # 知识步骤通过 RealWorkflowActions 调用公共知识业务
 ├── exception/                              # 复用初始化异常；增加资料不足异常
 ├── domain/dto/                             # 最少的知识输入 record
 └── utils/                                  # 扩充 PromptInputEncoder；复用日志与资源校验
@@ -109,7 +111,7 @@ src/main/resources/
 
 ## Phase 1 — Answer and cache design
 
-1. **直接调用专用工厂**：UserAiServiceCache 实现 AcceptedConversationInitializer，在成功接纳、Guard 建立后执行 cache.get(authUser.userId, ignored -> createServices())。私有 createServices 直接调用 DirectAnswerServiceFactory.directAnswerService()、EnhancedAnswerFactory.problemAnalysisService() 和 enhancedAnswerService()，完整成功后返回组合。创建仅组装代理/校验资源，零检索、零模型请求；其他已有调用方可在需要时直接使用对应工厂，无统一工厂依赖。
+1. **直接调用专用工厂**：新WorkflowExecutionService在鉴权、成功接纳并取得执行权后调用UserAiServiceCache，执行cache.get(authUser.userId, ignored -> createServices())；最终移除AcceptedConversationInitializer及旧Guard接入。私有createServices直接调用DirectAnswerServiceFactory.directAnswerService()、EnhancedAnswerFactory.problemAnalysisService()和enhancedAnswerService()，完整成功后返回组合。创建仅组装代理/校验资源，零检索、零模型请求；其他已有调用方可在需要时直接使用对应工厂，无统一工厂依赖。
 2. **唯一用户缓存**：一个 Cache<Long, UserAiServices>，maximumSize=1000、expireAfterAccess=30m；不增加复合键、每类型子 Map 或第二个实例缓存。同用户切换设备类型仍取同一三个代理；不同用户代理独立，共享只读 store/model。驱逐不关闭共享依赖，旧调用可持有旧组合完成，后续未命中再新建。
 3. **分流/理解**：常识直答；非常识用 analysis 解析 queryText、deviceType、型号/条件及 missingInformation。类型未知直答；缺型号/版本/环境不再等待补齐，而是保留信息缺口后检索。问题意图不明仍由公共路由澄清。原诊断 analyze 保留无 RAG 方法契约。
 4. **请求类型隔离**：EnhancedAnswerFactory.enhancedAnswerService() 不接收类型。QueryTransformer 从受控 JSON 提取 queryText 并保留原 metadata；Retriever.dynamicFilter 每次从原请求读取规范 deviceType 并新建唯一类型等值条件。没有用户当前类型字段、ThreadLocal 或 MemoryId。Router 在调用 Retriever 前校验类型与绝对截止。
@@ -131,7 +133,7 @@ src/main/resources/
 | KnowledgeConfig 与已移除的导入类引用 | 合并导入职责到 ai/rag/KnowledgeEmbeddingStore；缓存自行受管后移除冗余 KnowledgeConfig，修复全部引用 |
 | EnhancedAnswerServiceFactory / EnhancedAnswerService | 工厂按用户指定命名迁移为 EnhancedAnswerFactory；保留无 RAG 分析方法，新增不绑定类型的增强生成方法，由 UserAiServiceCache 在缓存未命中时直接调用专用工厂组合 |
 | LangChain4jProblemAnalyzer / MockKnowledgeAiServicesFactory | 更新兼容工厂引用，诊断仍用无 RAG 分析代理；本 feature 服务由用户缓存获取，缓存直接调用专用工厂；mock 使用相同工厂创建三代理组合并走真实 RAG |
-| AcceptedConversationInitializer / SessionOrchestrator | 复用接纳时机、Guard 和清理逻辑，由缓存实现协作者 |
+| AcceptedConversationInitializer / SessionOrchestrator | graph迁移完成后删除；WorkflowExecutionService在认证接纳后直接调用UserAiServiceCache，保留缓存初始化时机及失败清理保证 |
 | 已有知识测试与确定性向量夹具 | 复用行为断言，调整包名/Bean/缓存键；新增共享 store、同用户同代理并发不同类型、跨型号声明与专用工厂直接创建与缓存原子发布验证 |
 | RepairKnowledgeService 删除 | 不恢复旧 SQL 知识加载；核对余下消费者并保持已有诊断契约，不能把不存在的旧服务列为现成复用组件 |
 

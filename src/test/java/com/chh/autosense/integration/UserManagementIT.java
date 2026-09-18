@@ -162,7 +162,7 @@ class UserManagementIT extends AbstractIntegrationIT {
         for (ResponseEntity<JsonNode> duplicate
                 : List.of(sameUserDuplicate, otherUserDuplicate)) {
             assertThat(duplicate.getStatusCode().value()).isEqualTo(409);
-            assertThat(duplicate.getBody().path("code").asText())
+            assertThat(duplicate.getBody().path("data").path("code").asText())
                     .isEqualTo("DEVICE_ALREADY_BOUND");
             assertThat(duplicate.getBody().path("message").asText()).isEqualTo("该 SN 已绑定");
         }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
     <Properties>
-        <Property name="defaultConsolePattern">%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t %notEmpty{[requestId=%X{requestId}, userId=%X{userId}, sessionId=%X{sessionId}, messageId=%X{messageId}, round=%X{round}, deviceId=%X{deviceId}] }%m%n%ex</Property>
+        <Property name="defaultConsolePattern">%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%p logger=%c{1.} thread=%t %workflowContext%m%n%ex</Property>
         <Property name="consolePattern">${sys:CONSOLE_LOG_PATTERN:-${defaultConsolePattern}}</Property>
     </Properties>
     <Appenders>
@@ -15,6 +15,9 @@
         <Logger name="com.chh.autosense.mapper" level="INFO"/>
         <Logger name="dev.langchain4j" level="OFF"/>
         <Logger name="dev.ai4j" level="OFF"/>
+        <!-- GraphRunner exceptions may contain raw SQL/model output; application boundaries log sanitized diagnostics. -->
+        <Logger name="org.bsc.langgraph4j" level="OFF"/>
+        <Logger name="org.bsc.async" level="OFF"/>
         <Logger name="org.apache.hc.client5.http.wire" level="OFF"/>
         <Logger name="org.apache.http.wire" level="OFF"/>
         <Logger name="reactor.netty.http.client" level="OFF"/>

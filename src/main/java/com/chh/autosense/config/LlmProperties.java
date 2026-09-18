@@ -25,7 +25,7 @@ public record LlmProperties(
         }
         if (temperature == null || !Double.isFinite(temperature)
                 || timeoutSeconds == null || timeoutSeconds <= 0
-                || maxRetries == null || maxRetries < 0 || maxRetries > 3) {
+                || maxRetries == null || maxRetries != 0) {
             throw new IllegalArgumentException("Invalid AI timing or temperature configuration");
         }
         if ("real".equals(mode)) {

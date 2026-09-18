@@ -1,169 +1,134 @@
-# Data Model: 公共基础与统一意图路由
+# Data Model: LangGraph4j 对话计划与恢复
 
-**Date**: 2026-09-07
-**Constitution**: [2.3.0](../../.specify/memory/constitution.md)，包含对象形态、日志关联与本轮提示词数据边界。
-**Scope**: [002 spec](spec.md) / [research](research.md)。所有“新增/目标”均待实施；本次不执行迁移。
+**Date**: 2026-09-15
+**Status**: 目标设计，尚未实施；替换旧单一意图运行模型，历史数据继续可读。
+**References**: [spec](spec.md)、[plan](plan.md)、[执行契约](contracts/graph-contract.md)。
 
-## 1. 持久实体复用
+## 1. State 与字段权威
 
-| 实体 / 表 | 保留字段与关系 | 本期处理 |
+`graph/state/AssistantState extends AgentState`。保留用户指定的十个顶层键；上下文使用不可变 record，集合防御性复制，节点返回局部更新 Map，不直接修改共享嵌套对象。上下文默认替换而非隐式深合并；缺省值通过初始状态显式建立，清空当前步骤上下文也必须显式更新。
+
+| 顶层字段 | 内容及目的 | 写入权威 |
 | --- | --- | --- |
-| User / user | id、userAccount、userPassword、userName、userAvatar、userProfile、userRole、isDelete及审计时间 | 保持字段/唯一账号/密码加密；用户状态行锁查询须包含禁用记录 |
-| Device / device | id、userId、sn、name、simulatorName、simulatorDeviceId、deviceTypeCode/Id、deviceModelCode/Id、审计时间 | 保持SN唯一及本人归属，不新增运行状态列 |
-| RepairSession / repair_session | id、userId、deviceId、status、conclusionType、conclusion、conclusionExtra、createdAt、updatedAt | 继续作统一会话；新增两列处理指针与截止时间 |
-| ProblemReport / problem_report | id、sessionId、round、intent、rawText、deviceType、symptom、reproduction、clarifications、时间 | 继续作会话轮次记录；公共请求可无诊断属性，不新建轮次表 |
-| ChatMessage / chat_message | id、sessionId、role、content、createdAt | 长期可见历史，id作为本次处理边界 |
-| RepairActionLog / repair_action_log | id、sessionId、actionCode、params、result、message、createdAt | 复用记录公共路由/状态/异常关联，设备动作审计仍由005扩展 |
-| DiagnosticSnapshot / RepairKnowledge | 既有诊断快照与维修知识字段 | 保留数据供001/003复用，本期不重构领域模型 |
+| requestContext | requestId、conversationId、userId、userMessage；身份和原始输入 | 接纳服务一次写入；恢复不得覆盖 |
+| planContext | executionPlan、currentStep；经过验证的有序步骤及当前游标；runtimeInputs存未决输入的绑定 | Planner 提供候选，Validator 发布正式计划；CompleteStep 推进 |
+| workflowContext | status、currentStep、progress；增加 version、graphVersion、schemaVersion、lastOutputSequence；澄清时保存inputRequestId/prompt/returnNode | 生命周期节点；currentStep 是 PlanContext 的只读投影 |
+| deviceContext | 当前目标的已验证本地绑定元数据、设备类型及按 stepId 关联的快照引用/采集时间 | 确定性解析与独立 Query 节点 |
+| diagnosisContext | diagnosticInput、evidenceRefs、result、repairProposal | Diagnosis 节点；不包含设备执行器 |
+| controlContext | command、commandExecutionId、permissionDecision、risk、approvalRef、idempotencyKey、executionResult | Query/Control的确认与执行节点；查询command/commandExecutionId为空，approval按stepId绑定；命令状态是command_execution的投影 |
+| retryContext | 按 stepId/callId 的 attempts、retriesUsed、maxRetries、nextRetryAt、latestFailure、resultCertainty | 统一请求尝试边界 |
+| auditContext | workflowId（等于 requestId）、reportId、messageId、round、commandExecutionRefs、auditEventRefs | 持久化服务；只放引用，不复制整份审计历史 |
+| outputContext | type、code、message、data；当前面向客户端的输出 | 可观察节点生成，提交后发布 |
+| messages | LLM 节点使用的有界消息上下文 | 会话记忆适配器按持久消息 ID 构造 |
 
-设备元数据的外部类型/型号编码与ID、SN、模拟器设备ID及原始名称保持原值。平台 name 始终为用户显示名称。查询返回的 state、running_status 和外部 created_at/updated_at 不写入 Device；平台自身审计时间不属于该禁存范围。
+`requestId` 是服务端首次接纳计划时的 UUID，持久化并作为 LangGraph4j `threadId`。后续 HTTP 请求自己的 requestId 仅作 transport 日志标识，以 `workflowRequestId` 关联原计划。用户不能提交任意 State 或改写原 userId。
+`conversationId` 映射现有 `repair_session.id/sessionId`，不新增平行会话 ID。一轮新计划使用新 requestId；重试、批准、重启恢复保持原 requestId。
+`PlanContext.currentStep` 为零起始索引：0 ≤ index ≤ steps.size；末尾为完成哨兵。执行时类型读取等价于 `executionPlan.steps[currentStep].type`。WorkflowContext.currentStep 只提供对应 stepId/index/type 投影，不能反向决定路由。
+`progress` 含 total/completed/skipped/notExecuted，拒绝或失败不冒充 completed。CompleteStep 在同一事务内更新游标、步骤结果和投影，避免双 currentStep 分歧。
 
-### 对象定义与迁移边界
+State 禁止保存 Bean、AI Service、ChatMemory 实例、TokenStream、AsyncGenerator、SseEmitter、Future、锁对象、凭据或数据库连接。检查点只保存有明确 schema/version 的普通数据；反序列化使用类型白名单，不开启任意多态类型加载。
 
-- User、Device、RepairSession、ProblemReport、ChatMessage、RepairActionLog 使用 @Getter + @Setter，保留 public 无参构造（可显式 @NoArgsConstructor），不默认生成 equals/hashCode/toString。全部 @Table/@Id/@Column、逻辑删除及主键回填规则保持。
-- 当前调用只需要无参创建和访问器，无需新建全参构造或 Builder。DiagnosticSnapshot 由 001、RepairKnowledge 由 003 在所属功能规划中迁移；本期不为形式统一修改领域模型。
-- DTO/VO 与 Entity 继续分离；Entity 不直接作为 API 响应。Lombok 依赖合并与固定版本解析依据见[research](research.md) R11。
+## 2. 计划与步骤
 
-## 2. 最小数据库增量
+`ai/model/ExecutionPlanCandidate` 是模型候选；`graph/state/ExecutionPlan` 是服务端验证后发布的不可变计划。AI 步骤分类枚举位于 ai/model/enums，执行状态/业务步骤枚举位于 domain/enums，两者显式映射。
 
-仅新增：
+| PlanStep 字段 | 约束 |
+| --- | --- |
+| stepId | 模型局部引用标识经格式、唯一性校验；持久身份为 (requestId, stepId) |
+| type | KNOWLEDGE_CONSULT / DEVICE_QUERY / FAULT_DIAGNOSIS / DEVICE_CONTROL |
+| instruction、targetHint、parameters | 候选任务与线索，不能包含可信身份或任意接口地址 |
+| dependsOn、inputBindings | 仅能引用更早步骤的公开类型化结果字段；禁止循环、向前引用 |
+| condition | 可选受限条件表达式；只允许白名单比较、AND/OR、字段引用；禁止脚本/SpEL/任意代码 |
+| requiresKnowledgeBase | 仅知识步骤必填 boolean，常识 false，资料依赖或不确定 true |
+| diagnosisMode | 仅诊断步骤可指定 DEFAULT/AFTERSALES |
+| timeout、retryPolicy | 由服务端按类型配置，AI 不可修改 |
+| status、resultRef、failureCode | 服务端执行状态；模型无写入权 |
 
-| 表.列 | 类型 | 空值 / 含义 |
+计划最多 8 步（可配置），条件引用只允许已成功前序结果；条件 false 为 SKIPPED，引用缺失/类型不匹配则明确失败并停止计划。新需求需要新步骤时结束原计划并请求重新规划，不在当前计划中自动增删。图的步骤调度回边和有界重试不等于允许模型生成业务循环。
+
+## 3. 生命周期
+
+| 对象 | 状态与转换 |
+| --- | --- |
+| Workflow | CREATED → PLANNING → VALIDATING → RUNNING；RUNNING 可进入 WAITING_APPROVAL / WAITING_INPUT / RETRYING；重启后未终止计划进入 WAITING_RESUME；最终 COMPLETED / FAILED / REJECTED / CANCELLED |
+| PlanStep | PENDING → RUNNING → COMPLETED；条件不满足 → SKIPPED；等待确认 → WAITING_APPROVAL；超时 → RETRYING；明确错误/拒绝/耗尽 → FAILED/REJECTED；剩余步骤 → NOT_EXECUTED |
+| Approval | PENDING → APPROVED / REJECTED / EXPIRED / INVALIDATED；绑定用户、计划、步骤、目标、动作与规范化参数 hash |
+| Execution certainty | NOT_SENT / IN_FLIGHT / SUCCEEDED / FAILED / UNKNOWN；UNKNOWN 不等于未执行 |
+| Checkpoint | 保存 state、nextNode、checkpointId、parentId、版本；不是业务成功的证明 |
+
+失败、拒绝、重试耗尽后不进入成功 CompleteStep，不递增 completed，不继续无依赖步骤。正常 SKIPPED 由 CompleteStep 记账并推进。
+重启的 WAITING_RESUME 保留原 suspendedStatus/nextNode 和重试预算；显式 resume 后回到原等待/执行位置。已终止计划不能以 resume 复活。
+读写前重查身份、归属、参数与权限；过期批准重新询问而不复用，拒绝立即终止。恢复过程中不能因旧批准而跳过这些校验。
+同会话有未结束计划时，新普通消息不能隐式批准或恢复；用户显式取消旧计划后才接纳新目标，取消不能撤回已发送的外部效果。
+唯一例外是与当前inputRequestId匹配的WAITING_INPUT回复：属于原计划澄清，保存消息后续接AwaitInput。正式计划发布前可回Planner；发布后仅补充runtimeInputs，已确认scope若变化则失效并重新确认。OUT_OF_SCOPE没有执行步骤，正常结束；CLARIFY没有执行步骤，持久化为等待而非失败。
+
+## 4. 持久化设计
+
+### 4.1 五类逻辑数据与既有表映射
+
+对话业务持久化分为conversation、chat_message、workflow_execution、command_execution、audit_event五类。逻辑名称不要求重命名旧表，也不要求只有五张物理表；步骤、批准和检查点属于workflow_execution的内部持久结构。保留user、device及已有诊断领域数据；实体仍放domain/entity，MyBatis-Flex mapper放mapper，事务由core/session及相应业务服务承担。
+
+| 逻辑种类 | 物理落点 | 职责、关系及复用方式 |
 | --- | --- | --- |
-| repair_session.processing_message_id | BIGINT NULL | 当前被接纳的 chat_message.id；空表示没有消息正在处理 |
-| repair_session.processing_deadline_at | DATETIME NULL | 当前消息固定总截止时间；与消息指针同时设置/清空 |
+| conversation | **复用repair_session** | 长期会话容器，保留id/user_id与历史展示字段，增加nullable active_workflow_request_id。conversationId=sessionId=现有id；一会话多消息、多workflow，不新建conversation表或第二套ID |
+| chat_message | **复用chat_message** | 用户输入与可见系统输出的正文权威。保留id/session_id/role/content/created_at；增nullable workflow_request_id、step_id、output_key及唯一(workflow_request_id,output_key)防止恢复后重复保存输出；旧行保持原ID与正文 |
+| workflow_execution | **新增workflow_execution**及下述内部辅助表 | 一次用户目标的计划、步骤推进、等待、重试及恢复。request_id同时为workflowId/threadId；一会话多次执行，批准/澄清/恢复属于原执行；历史problem_report不是可恢复工作流 |
+| command_execution | **新增command_execution** | 单个设备控制命令的持久幂等账本，保存目标、动作、批准引用、执行尝试和结果确定性；一workflow可有多命令，同一Control步骤至多一条逻辑命令，重试更新同一条而不是新增命令 |
+| audit_event | **扩展repair_action_log** | 追加的事实记录，覆盖接纳、计划/步骤、查询、批准、拒绝、重试、恢复及命令尝试/结果；关联workflow/command/message。保留旧动作和状态日志，取消上版新增workflow_event表方案，不另建audit_event副本 |
 
-不新增用户认证版本、设备状态、轮次表或公共任务表。已有 problem_report.intent 的 VARCHAR(32) 足以承载四能力值和澄清标记。索引设计复用现有主键/会话查询索引；实施前核查执行计划，新增索引须有实际访问依据。
+`problem_report`保留已有轮次、原始问题和诊断描述的兼容用途，`diagnostic_snapshot`保留设备证据；它们是领域附属数据，不扩成另一套workflow或命令账本。旧raw_text保留，新流程以chat_message引用定位输入；不得把一个复合计划压成problem_report.intent中的单一执行意图。repair_session.device_id仅为历史/展示关联，当前每步目标以步骤与command记录为准。
 
-**不变量**：
+新增物理表共五张：workflow_execution、command_execution、workflow_step、workflow_approval、workflow_checkpoint；扩展三张已有表repair_session、chat_message、repair_action_log。后面三张新增表是workflow内部结构，不是额外业务数据种类：步骤需要独立结果/claim，批准需要独立版本/有效期，checkpoint需要按框架SPI保留最新及历史快照；不把这些塞进消息正文、审计JSON或已有诊断快照来伪装复用。
 
-- 两个处理字段同时为空或同时非空；处理消息必须属于当前会话。
-- 同一会话一条处理中消息，当前 round 仍从该会话问题报告确定。
-- 每个被接纳的 POST 在短事务内保存 USER 消息一次；仅有兼容 confirmRepair 的请求也记录确定性的用户可见意向文本以获得消息ID，但这不代表控制授权有效。
-- 未接纳的忙请求不保存为当前输入、不改变另一请求的处理指针。
-- 先锁会话行并验证当前处理，再插入消息/必要新轮报告；网络调用在事务外。
-- 回调必须在同一短事务中验证 messageId、截止时间和当前状态，再写消息、状态、结论与日志。验证失败的回调不得继续写任何持久数据。
-- 正常业务收尾仍将完整可见消息、状态投影、追溯及处理指针清理放在同一事务中；提交成功后发送相应结果。未接纳请求和持久化异常的错误通知遵循会话接口契约，不以数据库提交成功为前提，也不代表持久化收尾已经完成。
-- 数据库时间是截止判断基准，应用/JDBC/数据库时间配置须一致，不批量改写历史时间。
-- 超时采用独立恢复事务，条件是同一processing_message_id且截止已到，而非正常回调的“未到期”条件；原子记录REQUEST_TIMEOUT、失败说明并清指针。活跃请求到期由公共定时收尾触发并关流，GET/后续POST用于崩溃后补偿；任何恢复都不得覆盖新的处理指针。
-- token流发送不逐条写数据库；公共sink只接受当前仍有效处理的片段，处理结束/失租约/到期后停止发送。最终持久化仍必须经过数据库指针校验，不能只依赖内存标志。
+### 4.2 工作流及其内部结构
 
-**迁移约束**：
+| 表 / 主要键 | 主要字段及约束 |
+| --- | --- |
+| workflow_execution / request_id PK | user_id、session_id、report_id、origin_message_id、latest_input_message_id、graph_version、schema_version、status、suspended_status、current_step_index、plan_json、version、lease_owner/fence、lease_until、last_event_sequence、时间；同会话只允许一个非终止计划 |
+| workflow_step / (request_id,step_id) PK | ordinal、type、status、input_json/hash、result_json、failure_code、certainty、retries_used、max_retries、active_attempt_id、command_execution_id、开始/完成时间；唯一(request_id,ordinal)。非控制步骤自身管理尝试；控制步骤的命令状态/尝试以command_execution为权威，步骤仅保存结果引用/投影 |
+| workflow_approval / approval_id PK | request_id、step_id、user_id、scope_hash、operation_kind、device_refs、status、expires_at、decision_at、version；批准只能来自认证入口；每步至多一个当前有效批准，旧批准保留 |
+| workflow_checkpoint / (thread_id,checkpoint_id) PK | parent_checkpoint_id、next_node、state_payload、schema_version、graph_version、version、created_at；按thread查最新与历史，存完整可恢复checkpoint，不作为命令执行成功依据 |
 
-新增前向迁移脚本并同步新建库 DDL；旧行两列初始 NULL。保留已有行、主键、消息、SN绑定与状态历史。部署时排空旧在途工作；无法恢复的旧活动状态须记录中止后转公共失败，不回放模型或设备操作。迁移不清空数据库、不执行旧 seed 覆盖已有用户，不对旧 DEVICE_ACTION 做自动诊断/控制映射。
+接纳事务锁定本人repair_session行，检查active_workflow_request_id指向的状态并原子设置新执行，不能只用无锁count检查实现单活跃计划。workflow与message/report/step/approval/command的会话、用户、步骤关联必须一致；终止时条件清空活动指针，旧执行不能清掉后来执行的指针。
 
-## 3. 公共处理轮次与状态
+### 4.3 CommandExecution
 
-AI 分类不再与设备控制状态混在一起。现有诊断状态仍可用于历史展示及后续能力接入，002只新增下列公共状态：
+新表以command_id为主键，唯一(request_id,step_id)及唯一operation_key；关联session_id、user_id、device_id、action_code、canonical_params、params_hash、approval_id、scope_hash。另存status、certainty、result_json、failure_code、active_attempt_id、attempt_count、retries_used、max_retries、version/fence、started_at/finished_at/updated_at和可选remote_operation_id。operation_key由服务端生成并在所有重试/恢复中保持稳定；模型及客户端不能指定。
 
-| 状态 | 类型 | 用途 |
-| --- | --- | --- |
-| CREATED / ROUTING | 既有 | 新建后或新轮进行意图判定 |
-| CLARIFYING | 既有等待态 | 意图不明、复合任务或无效结构的澄清 |
-| DISPATCHING | 新增进行态 | 已验证单一意图，投递能力接收方 |
-| ANSWERING / COMPLETED_ANSWERED | 既有 | 用户可见解释及已完成回答；范围外说明亦可使用 |
-| FAILED_REQUEST | 新增终态 | 公共处理失败、未接入、超时或旧流程安全失效 |
+仅DEVICE_CONTROL产生命令记录，DEVICE_QUERY的只读调用记在workflow_step和audit_event；知识/诊断不产生设备命令。拒绝或权限校验未通过时仅记审计，不生成可发送命令。有效批准且重查权限/参数后，在出站前创建PREPARED记录。状态为PREPARED → IN_FLIGHT → SUCCEEDED / FAILED / UNKNOWN；安全超时重试可进入RETRYING再开始新attempt，沿用同command_id/operation_key，已成功或明确失败不可再执行。取消尚未发送命令可记CANCELLED；取消计划不能把已发送命令改成“未执行”。
 
-- CREATED → ROUTING。
-- 已有终态（包含已交付人工步骤的 GUIDED_MANUAL）或 FAILED_REQUEST + 新问题 → 新报告 round + ROUTING。
-- ROUTING + CLARIFY/COMPOSITE → CLARIFYING；答复本身保存为可见历史，随后关闭本轮流。
-- CLARIFYING 的后续内容经最近20条历史与当前输入重新分类，不拼接为重复当前输入。
-- ROUTING + OUT_OF_SCOPE → ANSWERING → COMPLETED_ANSWERED，保存确定性的服务范围说明。
-- ROUTING + SINGLE → DISPATCHING；处理器开始后进入其已登记的业务状态，公共状态机校验迁移，禁止直接 setStatus 绕过追溯。
-- 无处理器或公共模型/执行期错误 → FAILED_REQUEST。它的 conclusionType 为新增 ERROR，conclusion 为面向用户的错误说明，conclusionExtra 仅存脱敏 code 等恢复信息。
-- 错误响应接纳前失败或 SESSION_BUSY 不使另一个正在处理的会话转 FAILED_REQUEST。
-- 旧控制等待状态的 confirmRepair 不能直达旧 runner；必须由005已注册的控制处理器核对，不可用时明确失败。
-- 等待某能力期间收到新问题，先由原能力完成取消/失效或确认续办判断，再允许公共入口新轮路由；不能跳过旧控制状态处理直接把文本当作确认。
-- GET发现超时处理时可原子结清为FAILED_REQUEST并保留说明；不重新调用模型/设备，不产生设备副作用。下一次POST同样先结清旧处理再接纳新问题。
+命令记录是设备效果与重试判断的权威；workflow_step/controlContext/checkpoint仅引用或投影，不能相互独立修改执行结果。每次attempt的开始、超时、结果与拒绝另追加audit_event，不能用命令行覆盖后的最新状态代替完整尝试历史。当前外部client不支持幂等键或按操作ID核查结果，因此发送后超时/崩溃留下的不确定命令必须停止并报告DEVICE_RESULT_UNKNOWN；本地唯一键不能证明外部恰好执行一次。
 
-## 4. AI 输出与业务输入
+### 4.4 AuditEvent复用与公开事件投影
 
-**AI 层**（下列输出对象采用 Java 21 record，枚举仍为 enum）：
+repair_action_log原有id/session_id/action_code/params/result/message/created_at继续保留，不改写旧动作或state日志。新增nullable request_id、step_id、command_execution_id、attempt_id、actor_user_id、event_type、operation_kind、event_sequence、event_key、result_code、chat_message_ref和schema_version；新graph事件必须由服务端完整填写其适用关联，operation_kind保存查询/控制及具体操作种类。params复用为按event_type/schema_version定义的白名单元数据JSON，message仍为至多1024字符的安全摘要，完整正文通过chat_message_ref引用。
 
-- ai/model/RoutingDecision：outcome、intent、diagnosisMode、targetHint、clarifyQuestion、requiresKnowledgeBase。最后一项为可空 Boolean：仅 SINGLE + KNOWLEDGE 必填，常识 false、需检索 true，其余为空；经校验后透传 CapabilityRequest，不新增数据库列。
-- ai/model/enums/RoutingOutcome：SINGLE / CLARIFY / COMPOSITE / OUT_OF_SCOPE。
-- ai/model/enums/CapabilityIntent：KNOWLEDGE / DEVICE_QUERY / DIAGNOSIS / CONTROL。
-- ai/model/enums/DiagnosisMode：DEFAULT / AFTERSALES；仅DIAGNOSIS可有意义值。
-- ai/model/ProblemAnalysis：沿用 deviceType、symptom、reproduction、sufficient、clarifyQuestion。
-- ai/model/DiagnosisConclusion：沿用 problemSummary、conclusionText、likelyAutoFixable。
+保留result原有短结果分类和历史值；详细业务错误放新增result_code，不能把长失败码塞进现有VARCHAR(16)。action_code保持64字符内的动作/事件标识，旧值原样可读。历史行新增字段为null，不伪造workflow、command、批准或事件序列。唯一(request_id,event_sequence)和唯一(request_id,event_key)只约束新关联事件；event_key在同一业务事实的重复提交中稳定，重试的新attempt使用新事件身份。事件序列从workflow行原子分配，内部审计导致的公开序列间隙合法。
 
-**业务层**：
+AuditEvent是内部持久事实，WorkflowEvent是对外白名单DTO，两者不等同。只有可公开的状态/等待/步骤结果/终态事件才投影到OutputContext → WorkflowEvent → SSE；内部权限、参数、checkpoint和审计字段不得直接序列化给前端。逐token输出仍是临时序列，不逐token写repair_action_log。已有RepairActionLog/Mapper可扩展复用，不为逻辑名相同再建一套表或同时双写新旧审计。
 
-- domain/enums/AssistantCapability：四项可接入业务能力，由已验证AI分类显式映射；不把任意模型字符串用于查找Bean或方法。
-- core/routing/CapabilityRequest（不可变 record）：服务端AuthUser、sessionId、reportId/round、messageId、当前原文、只读历史边界、已校验能力/子模式及未验证目标线索。
-- 目标线索不是最终设备ID；设备归属与支持能力必须由所属服务核对。
-- CapabilityRequest 的可选兼容输入 confirmRepair 仅是用户原始意向；正式控制请求、确认ID/有效期、动作参数校验与命令幂等由005定义。
+### 4.5 事务、恢复与权威
 
-CapabilityRequest 的历史/上下文集合须形成不可变快照；record 不自动深度不可变，不能携带仍被其他线程修改的集合。其真实身份和处理指针由服务端传递，日志 MDC 不能代替这些业务字段。
+首次接纳在短事务内保存用户消息、关联report并创建workflow。结果事务原子保存步骤/工作流投影、command结果（控制时）、最终chat_message及审计事件/公开输出序列，网络调用全部在事务外。重复结果提交先检查稳定输出/事件键；不能多写消息、审计或重发设备操作。
+副作用前提交command意图和准备审计，再保存写前checkpoint；实际请求前以version/fence取得attempt、记IN_FLIGHT和尝试开始审计，之后才出站。写前任何持久化失败都禁止发送。出站与数据库提交不是同一事务；崩溃遗留IN_FLIGHT必须按不确定结果处理，不猜测请求未发送。
+成功结果先提交，checkpoint随后保存；checkpoint保存失败时，恢复从workflow_step读取已成功知识/查询结果，从command_execution读取命令结果并补齐步骤/state，不重做昂贵工作或成功命令。成功提交前不向SSE报成功；checkpoint不能覆盖较新的命令事实。
+MySQL乐观版本/claim及执行fence是并发权威；Redis带TTL租约仅加速互斥。迟到回调只按attempt/fence条件提交，不覆盖新结果；租约丢失时不能让第二执行器重发未知命令。checkpoint saver经持久化服务与mapper工作，不另建DAO框架或Redis持久源。
+用户输入/输出正文、命令账本、追加审计与checkpoint各有职责；不记录内部思维链、提示词或秘密。删除旧SessionTransitionLog/RepairExecutionRunner不删除repair_action_log表及历史记录，新命令审计由统一结果事务追加，复用的RepairExecutor不能再绕过该事务重复写旧格式日志。
 
-完整规则和例子见[routing-contract.md](contracts/routing-contract.md)。
+## 5. Memory 与缓存
 
-## 5. 可见历史及追溯
+复用 ConversationHistoryService 的本人会话、messageId 边界与 20 条历史窗口，创建每次调用独享的 LangChain4j ChatMemory 视图（20 条历史 + 当前输入一次），其内容投影到 messages。messages 使用替换或按稳定消息 ID 去重并限窗的 reducer，不用无界 append。
+同用户不同 conversation/request 的 memory 实例及消息集合隔离。AI Service 缓存仍只以 userId 缓存无状态代理，由专用工厂创建；不能将可变 ChatMemory 挂到共享用户代理或放到检查点。
+多个 LLM 节点消费当前有效消息窗口和显式步骤输入；规划 JSON、RAG 原文、内部推理不成为用户历史。首次规划按原始消息边界；接纳澄清回复后以最新回复为当前输入，之前可见消息进入最近20条历史窗口。RequestContext.userMessage仍保留最初原文作追溯，不再次追加到模型输入。当前输入不同时通过 history 与 text 重复注入。
+恢复加载持久 snapshot 的 messages，必要时按该workflow最后接纳的原始/澄清消息ID边界从历史重建，不能带入另一个会话或新轮的消息。origin_message_id始终保留最初输入，另存latest_input_message_id定位最后澄清输入。批准/恢复意向单独审计，不替换原始 userMessage。
 
-- MySQL chat_message 为唯一长期权威。仅 USER/ASSISTANT 参与模型历史；服务端系统提示、路由JSON和内部分析不写入可见历史。
-- 以当前USER消息ID为界，取同会话 id 较小的最后20条，再按id升序。当前输入单独出现一次，各次内部AI调用使用同一边界。
-- 身份与session归属先校验，历史查询始终限定session；不同用户相同文本不共享记忆。
-- 对完整回答、人工步骤、网点名称/地址/电话保存一条最终可见ASSISTANT消息，之后才允许新轮清当前结论投影。
-- 流式部分token不逐条落为历史消息。失败时保存明确失败说明；已经发出的部分文本不是已成功完成答复，GET/历史以最终持久结果为准。
-- SLF4J/Log4j 2 运行日志另按[日志契约](contracts/logging-contract.md)记录英文结果及关联；不取代本节的持久化记录，也不在运行日志复制content/rawText。数据库成功与状态变更日志在事务提交后产生，失败提交不得记录成功。
-- 公共追溯复用repair_action_log，actionCode采用 route / state / request 等类别；params保存round、reportId、messageId、能力与结果码等必要关联。禁止写模型密钥、token、密码、内部提示和完整原始供应商错误。
-- 不新建第二份可写模型记忆；旧 chatmemory Redis 键不作为新AIService输入，等原TTL失效。
+## 6. 迁移与保留
 
-## 6. Redis 数据与一致性
-
-| 键/用途 | 值/默认TTL | 目标规则 |
-| --- | --- | --- |
-| autosense:token:{token} | 当前用户ID/角色；7天滚动 | 必须与用户索引成员共同有效；不在日志中输出键的token部分 |
-| autosense:usertokens:{userId} | token集合；与token统一滚动 | 签发原子加入；校验同时续期两键；禁用/启用撤销旧集合 |
-| autosense:session:v2:{sessionId} | version、userId、round、messageId、能力和等待上下文JSON；30分钟 | 原子SET+TTL完整替换，防旧Hash残留；不持久保存控制授权 |
-| autosense:lock:session:{sessionId} | messageId + 随机owner；30秒 | SET NX，10秒owner校验续期；最终回调结束后owner校验删除 |
-| autosense:lock:device:{deviceId} | 所属session/round/request与随机owner；沿用10分钟 | 续期/释放原子核对owner；业务获取与失效策略归001/005 |
-
-token/index 多键原子操作按当前独立 Redis 部署实现；不在本期引入 Redis Cluster 迁移。索引缺失不自动补回成员，孤立旧 token 即使仍有 TTL 也无效。
-
-会话租约和数据库指针共同使用：不能因 Redis lease 过期就重放仍在DB截止时间内的请求。丢失owner后停止后续回调提交；原DB处理到期由公共恢复流程结清。续期设备锁和释放设备锁不得误操作别的owner；此原语不等价于005设备写幂等。
-
-## 7. 账号有效性与撤销边界
-
-真实请求需满足token存在、所属用户索引包含它、数据库用户存在且启用。角色以服务端可信记录核对。登录、禁用、启用按同一用户行串行；锁查询包含禁用行。
-
-- 签发在锁内复核账号，原子写token与索引/TTL；DB提交后返回。
-- 禁用与启用都撤销旧索引，必要时尽力删token本体。旧成员不得恢复，新登录只加入新token。
-- 关键Redis签发/索引撤销失败必须抛错并回滚数据库事务，不只返回错误；启用必须在撤销旧索引成功后才提交isDelete=0。已删除索引后的残留token可尽力清理，已撤销的凭据不补偿恢复。
-- 请求校验/状态变化需有明确先后关系，不能把已完成请求追溯撤销；后续请求和待启动设备操作需重新检查。
-- 开发身份只在显式开关下可用，固定普通用户角色，生产关闭；不能用dev token验证真实注销。
-
-## 8. DTO / VO 兼容迁移
-
-| 保持名称 | 目标包 | 公共影响 |
-| --- | --- | --- |
-| UserView、AdminUserPageView、DeviceView、ChatMessageView、SessionListItemView | domain/vo | 保留record、静态工厂及注解；仅Java归位，JSON字段不变 |
-| 六个Request、LoginResponse、SessionResponse、ConclusionDto | domain/dto | 均保留record、现有校验/Schema注解、组件类型及null语义 |
-| SseEvent、SseEventStream | domain/message | 保持五类事件形状 |
-| SessionStatus、ConclusionType、ActionResult等业务枚举 | domain/enums | 仅公共状态/ERROR结论类型增量 |
-| AI分类与结构化输出 | ai/model、ai/model/enums | 不直接作为外部JSON响应或已验证业务身份 |
-
-与URL/字段有关的具体契约见[会话接口](contracts/assistant-api.md)和[用户/设备接口](contracts/user-device-api.md)。新增状态与错误值需客户端按字符串处理未知值，既有字段不得删除或改名。
-
-
-## 9. 日志关联视图（非持久实体）
-
-只在日志上下文保存 requestId、已验证 userId、已接纳 sessionId/messageId/round、实际关联 deviceId 等白名单快照。不新增日志表、requestId数据库列、公开DTO字段或审计授权凭证。
-
-HTTP、executor、AI回调、定时收尾分别显式安装/恢复该快照；迟到回调保留旧消息关联。requestId不能作为认证身份或业务幂等键。业务截止校验和可靠追溯仍由既有事务与处理指针负责；MDC丢失不能改变请求授权或业务事实。
-
-日志不输出完整对象或原始异常。带敏感字段的 record 自动toString同样受此约束；迁移到Lombok/record不能降低脱敏标准。
-
-## 10. Prompt资源与输入视图（非持久模型）
-
-六个文件作为classpath资源随应用发布，不建prompt表、Redis缓存、可编辑管理实体或公开DTO。具体文件、变量、加载与失败规则见[prompt契约](contracts/prompt-contract.md)。
-
-| 数据 | 形态 / 生命周期 | 边界 |
-| --- | --- | --- |
-| 四系统规则 | /prompt/四类代理对应文件；应用版本内固定文本 | 无用户/历史/检索变量，不生成可信身份或授权 |
-| 两用户包装 | conversation-input.txt、diagnosis-input.txt | 仅固定资料区及精确模板变量，正文不落会话历史/审计 |
-| text / history | 本次文本的JSON字符串、只读历史JSON数组 | 复用第5节的20条与messageId边界；本次单独一次，同轮快照不变 |
-| symptom / diagnostics | JSON字符串或null字面量、JSON对象 | 前者是AI候选；后者是服务端授权读取资料；缺失Map→{}，全部@V值非Java null |
-| 模板输入编码 | utils/PromptInputEncoder输出的临时JSON值文本 | 独立writer转义字符串值及键中的花括号；普通JSON数据限定及字符规则见prompt契约；不更改持久化原文、HTTP序列化或record输出解析 |
-
-编码只是模板绑定前的内部表示，解码后逻辑值等于原数据，不新增持久字段或第二份历史。用户资料始终在UserMessage资料区；history内role为数据字段，不能生成新的SystemMessage。SDK输出格式生成与RoutingDecision等AI候选模型继续按既有契约处理。
+新增前向迁移 `scripts/migration/20260915-langgraph-workflow.sql` 并同步新建库 DDL（均在 implement 阶段生成）。旧迁移不改写，已有数据不重置。
+按4.1创建五张必要新表并扩展三张既有表；旧ID、消息正文和审计记录保持不变。新关联列对旧行允许null，索引须兼容存量数据。现有旧命令日志没有可靠幂等键/批准/尝试身份，禁止回填成可恢复command_execution；旧report也不能批量伪造checkpoint。旧记录只通过历史投影读取。
+repair_session 增加 nullable active_workflow_request_id；现 processing_message_id/deadline 仅代表一次活跃执行区间，人工等待和重启恢复不受旧绝对截止误终止。
+升级先排空旧处理：无 checkpoint 的旧在途请求留存明确无法恢复说明，不能从原消息重放；旧终态/消息无需转成新图。
+新图 workflow 由新恢复逻辑处理，旧 recoverOwned/expire 随SessionProcessingService移除，不再参与GET或重启恢复。ConversationHistoryService改依赖独立AcceptedWorkflow记录或显式userId/sessionId/messageId，不能继续引用旧内部Accepted。
+SessionContext/SessionContextStore及旧Redis等待快照退出最终数据模型，只有持久checkpoint能恢复新任务。SessionStatus历史值及既有processing字段可以为数据/API兼容保留，但不再承载第二套状态机或旧到期裁决逻辑；本次不要求为删除类而破坏性删除历史列。
+原接纳/结果提交/审计及afterCommit日志职责迁入新事务服务，旧SessionTransitionLog/SessionStateMachine删除。共享历史、快照、账号、设备、知识索引和userId代理缓存保留。
+既有显式会话删除继续校验归属并事务处理关联记录；非终止或外部结果 UNKNOWN 的 workflow 拒绝删除，待执行结束/结果核对后再处理，避免删除后未知副作用失去追溯。

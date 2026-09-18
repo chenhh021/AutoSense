@@ -1,11 +1,12 @@
 <!--
 Sync Impact Report
-- Version change: 2.2.0 → 2.3.0
-- Rationale: 新增 AI Service 提示词资源化与注解加载要求,实质性扩充 AI 开发规范。
-- Modified principles: IV. AI 集成规范(LangChain4j)补充提示词资源化约束;同步项目资源目录和评审要求。
-- Added sections: AI Service 提示词规范。
-- Removed sections: 无。
-- Follow-up TODOs: 无未填写占位符;既有内联提示词迁移、资源校验及相关 plan/tasks 更新在后续功能工作流中落实。
+- Version change: 2.3.0 → 2.3.1
+- Rationale: 落实已批准的 LangGraph4j 迁移，修正项目目录和旧编排示例；不扩充其他原则。
+- Modified principles: 项目结构与分层规范，graph 为对话执行入口，core/session 保留事务、查询与执行资源服务。
+- Added sections: graph/state、node、subgraph、checkpoint 目录职责。
+- Removed sections: 旧 core/routing 和 core/session/statemachine 目录示例。
+- Impact: specs/002-assistant-foundation/plan.md、quickstart.md、specs/README.md 与 001/003 接入说明同步；历史任务和验证记录保留。
+- Follow-up TODOs: 无。
 -->
 
 # AutoSense Constitution
@@ -108,8 +109,13 @@ src/main/java/com/chh/autosense/
 ├── controller/                     # HTTP/API 入口
 ├── service/                        # 应用服务
 │   ├── user/                       # 用户与令牌服务
-│   └── knowledge/                  # 维修知识服务
-├── core/                           # 核心业务能力与流程编排
+│   └── knowledge/                  # 知识回答、来源校验与用户 AI 服务缓存
+├── graph/                          # LangGraph4j 对话执行图与 MainGraphFactory
+│   ├── state/                      # 可持久化的工作流状态
+│   ├── node/                       # 意图计划、确定性路由与步骤节点
+│   ├── subgraph/                   # 查询、诊断、控制子图工厂
+│   └── checkpoint/                 # 持久化检查点与序列化
+├── core/                           # 核心业务能力与持久化入口
 │   ├── aftersales/                 # 售后服务接入与引导
 │   ├── analysis/                   # 问题分析与诊断推理
 │   ├── device/                     # 设备注册与适配
@@ -118,11 +124,9 @@ src/main/java/com/chh/autosense/
 │   │   ├── rule/                   # 故障规则判定
 │   │   └── spi/                    # 设备适配扩展契约
 │   ├── repair/                     # 修复动作执行
-│   ├── routing/                    # 意图路由与直接回答
 │   ├── security/                   # 认证、授权与安全模块配置
-│   └── session/                    # 会话编排与上下文
-│       ├── memory/                 # 对话记忆
-│       └── statemachine/           # 会话状态机
+│   └── session/                    # 会话查询、接纳、执行权、批准、审计与恢复事务
+│       └── memory/                 # 多轮历史快照与图消息适配
 ├── mapper/                         # MyBatis-Flex 数据访问接口
 ├── domain/
 │   ├── dto/                        # 请求与响应等数据传输对象
@@ -134,6 +138,7 @@ src/main/java/com/chh/autosense/
 │   ├── factory/                    # LangChain4j AI Service 创建工厂
 │   ├── model/                      # LangChain4j 相关模型与结构化输出对象
 │   │   └── enums/                  # AI 输出分类等枚举
+│   ├── rag/                        # 共享知识索引导入与检索组件
 │   └── tools/                      # AI 工具抽象与实现
 ├── common/                         # 公共响应与全局异常处理
 ├── exception/                      # 自定义异常与错误码
@@ -146,8 +151,11 @@ src/main/java/com/chh/autosense/
 
 - HTTP/API 入口 MUST 放置于 `controller/`,负责请求校验、调用业务入口及响应转换。
 - 用户、知识等应用服务 MUST 按业务域放置于 `service/`。
-  诊断、修复、设备、路由、售后、安全及会话等核心能力 MUST 放置于对应的 `core/` 子包。
+  诊断、修复、设备、售后、安全及会话等核心能力 MUST 放置于对应的 `core/` 子包。
   核心模块内部的 Service MUST 留在所属模块,例如 `core/device/DeviceRegistryService`。
+- 对话执行图 MUST 放置于 Java 基包下的 `graph/`；节点、状态、子图和检查点按职责归位。
+  LangGraph4j 决定步骤顺序，Controller 消费图 stream 投影后的公开事件，不直接暴露内部状态。
+  `core/session/` 提供查询、事务与运行资源服务，不保留旧编排器、回调分发或 Redis 上下文续接链。
 - MyBatis-Flex 数据访问接口 MUST 放置于 `mapper/`,数据库实体 MUST 放置于
   `domain/entity/`。`mapper/` MUST NOT 用于放置 DTO/VO 对象转换逻辑。
 - DTO MUST 放置于 `domain/dto/`,VO MUST 放置于 `domain/vo/`;
@@ -171,7 +179,7 @@ Controller -> 业务服务或核心编排(service / core) -> Mapper -> 数据库
 ```
 
 Controller MAY 调用 `service/` 中的服务或 `core/` 中的业务入口,
-例如 `SessionOrchestrator`、`DeviceRegistryService`,MUST NOT 直接调用 Mapper。
+例如 `WorkflowExecutionService`、`ConversationQueryService`、`DeviceRegistryService`,MUST NOT 直接调用 Mapper。
 `service/` 与 `core/` 中的业务组件可按职责协作,MUST NOT 引入循环调用依赖;
 业务组件 MUST NOT 反向依赖 Controller,Mapper MUST NOT 依赖 Controller、Service 或核心编排。
 AI、配置、公共类型与工具包按各自职责提供支持,不要求每次调用经过所有目录。
@@ -552,4 +560,4 @@ implementation
 
 任何违反原则而引入的额外复杂性 MUST 给出书面理由,否则必须简化。
 
-**Version**: 2.3.0 | **Ratified**: 2026-08-21 | **Last Amended**: 2026-09-07
+**Version**: 2.3.1 | **Ratified**: 2026-08-21 | **Last Amended**: 2026-09-15

@@ -15,7 +15,7 @@ export async function create(
   body: API.CreateSessionRequest,
   options?: { [key: string]: any }
 ) {
-  return request<API.SseEmitter>("/api/v1/sessions", {
+  return request<API.WorkflowEvent>("/api/v1/sessions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -54,9 +54,9 @@ export async function deleteUsingDelete(
 }
 
 /** 此处后端没有提供注释 GET /api/v1/sessions/${param0}/messages */
-export async function listMessages(
+export async function messages(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
-  params: API.listMessagesParams,
+  params: API.messagesParams,
   options?: { [key: string]: any }
 ) {
   const { sessionId: param0, ...queryParams } = params;
@@ -84,4 +84,87 @@ export async function postMessage(
     data: body,
     ...(options || {}),
   });
+}
+
+/** 此处后端没有提供注释 GET /api/v1/sessions/${param0}/workflows/${param1} */
+export async function workflow(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.workflowParams,
+  options?: { [key: string]: any }
+) {
+  const { sessionId: param0, requestId: param1, ...queryParams } = params;
+  return request<API.WorkflowView>(
+    `/api/v1/sessions/${param0}/workflows/${param1}`,
+    {
+      method: "GET",
+      params: { ...queryParams },
+      ...(options || {}),
+    }
+  );
+}
+
+/** 此处后端没有提供注释 POST /api/v1/sessions/${param0}/workflows/${param1}/approval */
+export async function approval(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.approvalParams,
+  body: API.WorkflowApprovalRequest,
+  options?: { [key: string]: any }
+) {
+  const { sessionId: param0, requestId: param1, ...queryParams } = params;
+  return request<API.SseEmitter>(
+    `/api/v1/sessions/${param0}/workflows/${param1}/approval`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      params: { ...queryParams },
+      data: body,
+      ...(options || {}),
+    }
+  );
+}
+
+/** 此处后端没有提供注释 POST /api/v1/sessions/${param0}/workflows/${param1}/cancel */
+export async function cancel(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.cancelParams,
+  body: API.WorkflowCancelRequest,
+  options?: { [key: string]: any }
+) {
+  const { sessionId: param0, requestId: param1, ...queryParams } = params;
+  return request<API.SseEmitter>(
+    `/api/v1/sessions/${param0}/workflows/${param1}/cancel`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      params: { ...queryParams },
+      data: body,
+      ...(options || {}),
+    }
+  );
+}
+
+/** 此处后端没有提供注释 POST /api/v1/sessions/${param0}/workflows/${param1}/resume */
+export async function resume(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.resumeParams,
+  body: API.WorkflowResumeRequest,
+  options?: { [key: string]: any }
+) {
+  const { sessionId: param0, requestId: param1, ...queryParams } = params;
+  return request<API.SseEmitter>(
+    `/api/v1/sessions/${param0}/workflows/${param1}/resume`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      params: { ...queryParams },
+      data: body,
+      ...(options || {}),
+    }
+  );
 }

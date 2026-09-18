@@ -1,0 +1,13 @@
+# Explicit local/test workflow mode. Model settings cannot contact external providers.
+spring:
+  main:
+    lazy-initialization: true
+autosense:
+  graph:
+    mode: stub
+  llm:
+    mode: mock
+  knowledge:
+    embedding:
+      provider: mock
+      dimensions: 64

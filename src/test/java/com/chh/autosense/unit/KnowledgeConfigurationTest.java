@@ -1,6 +1,6 @@
 package com.chh.autosense.unit;
 
-import com.chh.autosense.config.AssistantProperties;
+import com.chh.autosense.config.GraphProperties;
 import com.chh.autosense.config.KnowledgeEmbeddingProperties;
 import com.chh.autosense.config.KnowledgeProperties;
 import com.chh.autosense.config.LlmProperties;
@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.*;
 class KnowledgeConfigurationTest {
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties({KnowledgeProperties.class, KnowledgeEmbeddingProperties.class,
-            LlmProperties.class, AssistantProperties.class})
+            LlmProperties.class, GraphProperties.class})
     @Import({KnowledgeEmbeddingStore.class, KnowledgeEmbeddingConfig.class, MockKnowledgeAiServicesFactory.class,
             UserAiServiceCache.class, PromptInputEncoder.class,
             com.chh.autosense.ai.factory.DirectAnswerServiceFactory.class, com.chh.autosense.ai.factory.EnhancedAnswerFactory.class})
@@ -104,16 +104,15 @@ class KnowledgeConfigurationTest {
 
     @Test void providerAndCumulativeBudgetNeverSilentlyFallBack() {
         var llm = new LlmProperties(null, null, null, 0.0, 30, "mock", 0);
-        var timing = new AssistantProperties(120, 30, 10, 1800);
+        var timing = new GraphProperties("real", 8, 30, null, 2, 1000, 300, 30, 300, 256);
         var mock = embedding(Map.of("autosense.knowledge.embedding.provider", "mock"));
         mock.validate(llm, timing);
-        assertThatThrownBy(() -> mock.validate(llm, new AssistantProperties(105, 30, 10, 1800)))
-                .isInstanceOf(IllegalArgumentException.class); // Equality at the absolute budget is rejected.
-        mock.validate(llm, new AssistantProperties(106, 30, 10, 1800));
+        assertThatThrownBy(() -> embedding(Map.of("autosense.knowledge.embedding.max-retries", "1")))
+                .isInstanceOf(Exception.class);
         assertThatThrownBy(() -> embedding(Map.of()).validate(llm, timing)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> embedding(Map.of("autosense.knowledge.embedding.provider", "unknown")))
                 .isInstanceOf(Exception.class);
-        assertThatThrownBy(() -> mock.validate(llm, new AssistantProperties(100, 30, 10, 1800)))
+        assertThatThrownBy(() -> new LlmProperties(null, null, null, 0.0, 30, "mock", 1))
                 .isInstanceOf(IllegalArgumentException.class);
         var real = new LlmProperties("http://localhost:1234/v1", "test", "chat", 0.0, 30, "real", 0);
         assertThatThrownBy(() -> mock.validate(real, timing)).isInstanceOf(IllegalArgumentException.class);
@@ -149,7 +148,7 @@ class KnowledgeConfigurationTest {
                     "autosense.knowledge.embedding.max-segments-per-batch", "2"));
             var model = new KnowledgeEmbeddingConfig().knowledgeEmbeddingModel(config,
                     new LlmProperties(null, null, null, 0.0, 30, "mock", 0),
-                    new AssistantProperties(120, 30, 10, 1800));
+                    new GraphProperties("real", 8, 30, null, 2, 1000, 300, 30, 300, 256));
             var segments = java.util.stream.IntStream.range(0, 4)
                     .mapToObj(i -> dev.langchain4j.data.segment.TextSegment.from("fixture-" + i)).toList();
             assertThat(model.embedAll(segments).content()).hasSize(4);

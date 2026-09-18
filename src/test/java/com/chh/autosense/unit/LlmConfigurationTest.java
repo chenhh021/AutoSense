@@ -1,7 +1,7 @@
 package com.chh.autosense.unit;
 
 import org.junit.jupiter.api.Test;
-import com.chh.autosense.config.AssistantProperties;
+import com.chh.autosense.config.GraphProperties;
 import com.chh.autosense.config.LlmProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -24,21 +24,17 @@ class LlmConfigurationTest {
                     "autosense.llm.timeout-seconds=30");
 
     @Configuration(proxyBeanMethods = false)
-    @EnableConfigurationProperties({LlmProperties.class, AssistantProperties.class})
+    @EnableConfigurationProperties({LlmProperties.class, GraphProperties.class})
     static class PropertyConfiguration {
-        @Bean Object checkedBudget(AssistantProperties assistant, LlmProperties llm) {
-            assistant.validateModelBudget(llm);
-            return new Object();
-        }
     }
 
     @Test void propertiesBindDefaultsWithoutNetworkCalls() {
         properties.run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBean(LlmProperties.class).maxRetries()).isZero();
-            assertThat(context.getBean(AssistantProperties.class).processingTimeoutSeconds()).isEqualTo(120);
-            assertThat(context.getBean(AssistantProperties.class).sessionLeaseSeconds()).isEqualTo(30);
-            assertThat(context.getBean(AssistantProperties.class).sessionRenewSeconds()).isEqualTo(10);
+            assertThat(context.getBean(GraphProperties.class).executionSliceTimeoutSeconds()).isEqualTo(300);
+            assertThat(context.getBean(GraphProperties.class).plannerTimeoutSeconds()).isEqualTo(30);
+            assertThat(context.getBean(GraphProperties.class).maxRetries()).isEqualTo(2);
         });
     }
 
@@ -47,7 +43,7 @@ class LlmConfigurationTest {
                 "autosense.llm.base-url=invalid", "autosense.llm.model-name=", "autosense.llm.temperature=NaN",
                 "autosense.llm.timeout-seconds=0", "autosense.llm.max-retries=-1",
                 "autosense.llm.max-retries=4",
-                "autosense.assistant.session-renew-seconds=30", "autosense.assistant.context-ttl-seconds=0"}) {
+                "autosense.graph.max-plan-steps=0", "autosense.graph.approval-ttl-seconds=0"}) {
             properties.withPropertyValues(invalid).run(context -> assertThat(context).hasFailed());
         }
         properties.withPropertyValues("autosense.llm.mode=mock", "autosense.llm.api-key=",

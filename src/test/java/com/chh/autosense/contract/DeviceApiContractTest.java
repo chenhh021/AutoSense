@@ -54,6 +54,16 @@ class DeviceApiContractTest {
     }
 
     @Test
+    void 管理员设备列表仍按本人过滤() throws Exception {
+        when(tokenResolver.resolve("Bearer admin-token")).thenReturn(new AuthUser(99L, "admin"));
+        when(registryService.listMine(99L)).thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/devices").header("Authorization", "Bearer admin-token"))
+                .andExpect(status().isOk());
+        verify(registryService).listMine(99L);
+        verify(registryService, never()).listMine(1L);
+    }
+
+    @Test
     void 未认证返回401() throws Exception {
         mockMvc.perform(get("/api/v1/devices"))
                 .andExpect(status().isUnauthorized())

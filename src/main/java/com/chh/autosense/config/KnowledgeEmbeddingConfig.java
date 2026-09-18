@@ -19,18 +19,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class KnowledgeEmbeddingConfig {
     @Bean
     public EmbeddingModel knowledgeEmbeddingModel(KnowledgeEmbeddingProperties properties,
-                                                   LlmProperties llm, AssistantProperties assistant) {
-        properties.validate(llm, assistant);
+                                                   LlmProperties llm, GraphProperties graph) {
+        properties.validate(llm, graph);
         EmbeddingModel delegate;
         if ("mock".equals(properties.provider())) {
             delegate = new LocalEmbeddingModel(properties.dimensions() == null ? 64 : properties.dimensions());
         } else {
-            var builder = OpenAiEmbeddingModel.builder().baseUrl(properties.baseUrl()).apiKey(properties.apiKey())
-                    .modelName(properties.modelName()).timeout(Duration.ofSeconds(properties.timeoutSeconds()))
-                    .maxRetries(properties.maxRetries()).maxSegmentsPerBatch(properties.maxSegmentsPerBatch())
-                    .logRequests(false).logResponses(false);
-            if (properties.dimensions() != null) builder.dimensions(properties.dimensions());
-            delegate = builder.build();
+            delegate = new EmbeddingModel() {
+                @Override public Response<List<Embedding>> embedAll(List<TextSegment> segments) {
+                    var builder = OpenAiEmbeddingModel.builder().baseUrl(properties.baseUrl()).apiKey(properties.apiKey())
+                            .modelName(properties.modelName()).timeout(com.chh.autosense.graph.node.AttemptCalls.limit(Duration.ofSeconds(properties.timeoutSeconds())))
+                            .maxRetries(0).maxSegmentsPerBatch(properties.maxSegmentsPerBatch()).logRequests(false).logResponses(false);
+                    if (properties.dimensions() != null) builder.dimensions(properties.dimensions());
+                    return builder.build().embedAll(segments);
+                }
+            };
         }
         log.info("Knowledge embedding configured: provider={}, model={}, dimensions={}, timeoutSeconds={}, maxRetries={}",
                 properties.provider(), LogSanitizer.label(properties.modelName()), properties.dimensions(),

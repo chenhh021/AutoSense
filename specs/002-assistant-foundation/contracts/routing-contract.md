@@ -1,155 +1,96 @@
-# Contract: AI 路由与公共能力接入
+# Contract: IntentPlanner 与确定性计划路由
 
-**Date**: 2026-09-07
-**Feature**: [002 spec](../spec.md)
-**Status**: 目标内部契约，尚未实施。此文件不新增公开路由接口，也不把AI输出暴露为公共响应。
+**Date**: 2026-09-15
+**Status**: LangGraph4j 目标契约；替代旧 SINGLE/COMPOSITE 后仅选择一项的执行限制。
+**References**: [Graph](graph-contract.md)、[State](../data-model.md)、[Prompt](prompt-contract.md)。
 
-## 1. AI Service 输入与创建
+## 1. 输入、输出与创建
 
-分别由 ai/factory 下的 IntentRouterServiceFactory、EnhancedAnswerFactory、DiagnosisReasonerServiceFactory 和 DirectAnswerServiceFactory 创建意图路由、问题分析、诊断推理及流式回答代理；调用方直接使用对应工厂方法。同步和流式代理分开装配；LangChain4jConfig 提供外部化模型配置与Bean接线。现有业务接口可保留作为适配边界，实际调用必须经过代理。
+IntentPlanner 消费 RequestContext 的原始消息，以及由 messages 提供的本人会话历史窗口；不让模型决定 userId、threadId 或批准事实。模型调用仍由 LangChain4j AI Service 完成。
+新增 ai/IntentPlannerService 及 ai/factory/IntentPlannerServiceFactory，使用资源提示词，返回 ai/model/ExecutionPlanCandidate。复用模型 Bean 和 AiServiceValidator，不恢复统一 AiServiceFactory。
+候选 outcome 为 PLAN / CLARIFY / OUT_OF_SCOPE。简单意图为一个步骤，复合意图为多个步骤；CLARIFY/OUT_OF_SCOPE 无可执行步骤。旧RoutingDecision及单意图分类接口仅可在移植期间作对照，移植完成删除；历史数据库枚举文本由只读展示解释，不保留可执行分类链。
+步骤类型映射：
 
-路由代理输入为：
-
-| 输入 | 来源 / 约束 |
+| 新计划类型 | 旧能力兼容值 |
 | --- | --- |
-| text | 本次被接纳的用户输入，按prompt契约编码为JSON字符串，只出现一次 |
-| history | 服务端校验会话后提供的最近20条可见历史JSON数组，保留role/content；字符串字段采用专用转义 |
-| system instructions | /prompt/intent-router.txt中的固定规则；资源不含运行时变量，历史/检索/设备名称均不得提升为系统指令 |
+| KNOWLEDGE_CONSULT | KNOWLEDGE |
+| DEVICE_QUERY | DEVICE_QUERY |
+| FAULT_DIAGNOSIS | DIAGNOSIS |
+| DEVICE_CONTROL | CONTROL |
 
-四代理的方法使用 @SystemMessage(fromResource) 和 @UserMessage(fromResource)，固定规则与输入包装均由src/main/resources/prompt/资源加载；六文件及精确绑定见[prompt契约](prompt-contract.md)。路由使用conversation-input.txt绑定history/text，全部参数非null；utils/PromptInputEncoder防止固定1.0.1再次替换数据中的字面模板标记，不修改数据库原文。
+工厂代理不挂共享可写 memory，不自动注册设备工具。ChatMemory 服务负责生成 messages，再适配为现有 @V(history/text) 输入，当前输入一次；详见 data-model。
 
-代理使用显式 @V 模板参数，不挂ChatMemory或@MemoryId。sessionId/userId/messageId只由外层持有以校验与追溯，不由模型生成可信身份。
-
-工厂不调用 tools/toolProvider，不自动扫描注入BaseTool。002 无需模型执行任何设备工具；后续只读工具接入也须由对应feature明确设计权限。
-
-## 2. RoutingDecision
-
-RoutingDecision 使用不可变 record，ProblemAnalysis/DiagnosisConclusion 保留现有 record 并迁入 ai/model。解析依靠固定版本真实 AI Service，不能以手写解析旁路替代；字段名与候选语义保持。字段均属于AI候选输出：
-
-| 字段 | 类型 | 校验 |
-| --- | --- | --- |
-| outcome | RoutingOutcome | 必填；SINGLE / CLARIFY / COMPOSITE / OUT_OF_SCOPE |
-| intent | CapabilityIntent或null | SINGLE必须为KNOWLEDGE / DEVICE_QUERY / DIAGNOSIS / CONTROL；其他outcome必须为空 |
-| diagnosisMode | DiagnosisMode或null | DIAGNOSIS时DEFAULT或AFTERSALES；其他意图为空 |
-| requiresKnowledgeBase | Boolean或null | SINGLE + KNOWLEDGE 必填：常识 false，依赖产品资料或无法确定是常识 true；其他意图/outcome 必须为空。缺失或矛盾值转澄清 |
-| targetHint | String或null | 未验证的设备线索，不作为已授权设备ID |
-| clarifyQuestion | String或null | CLARIFY/COMPOSITE应有简短问题；为空时服务端使用固定澄清文案 |
-
-明确查询：
+## 2. 结构化候选示例
 
 ```json
 {
-  "outcome": "SINGLE",
-  "intent": "DEVICE_QUERY",
-  "diagnosisMode": null,
-  "requiresKnowledgeBase": null,
-  "targetHint": "客厅灯",
+  "outcome": "PLAN",
+  "steps": [
+    {
+      "stepId": "s1",
+      "type": "DEVICE_QUERY",
+      "instruction": "读取客厅灯亮度",
+      "targetHint": "客厅灯",
+      "parameters": {"fields": ["brightness"]},
+      "dependsOn": [],
+      "inputBindings": {},
+      "condition": null,
+      "requiresKnowledgeBase": null
+    },
+    {
+      "stepId": "s2",
+      "type": "DEVICE_CONTROL",
+      "instruction": "亮度低于30时设为80",
+      "targetHint": "客厅灯",
+      "parameters": {"brightness": 80},
+      "dependsOn": ["s1"],
+      "inputBindings": {"deviceRef": {"stepId": "s1", "field": "deviceRef"}},
+      "condition": {"op": "LT", "left": {"stepId": "s1", "field": "brightness"}, "right": 30},
+      "requiresKnowledgeBase": null
+    }
+  ],
   "clarifyQuestion": null
 }
 ```
 
-复合条件任务：
+这是未授权的计划候选，s1/s2 各需确认；任何字段中的 deviceRef 必须在服务端重新验证所属用户，不信任模型制造的引用。
+AI 不输出可信 approval、permission、timeout、retryBudget、result 或运行状态。额外的安全敏感字段导致计划拒绝，不以宽松解析接受。
+步骤参数、引用字段和条件运算必须通过按类型白名单；允许 EQ/NE/LT/LE/GT/GE/AND/OR 和有限深度表达式，不允许脚本、类名、Bean 名、URL、反射或任意工具名。
 
-```json
-{
-  "outcome": "COMPOSITE",
-  "intent": null,
-  "diagnosisMode": null,
-  "requiresKnowledgeBase": null,
-  "targetHint": null,
-  "clarifyQuestion": "你想先查询亮度，还是发起调节亮度的请求？"
-}
-```
+## 3. PlanValidator
 
-售后：
+先按 outcome 校验：PLAN 要求步骤数 1..8（配置上限）、ID 唯一、类型枚举、允许动作、引用只向前、参数形状、条件类型与深度；CLARIFY 要求无步骤和非空追问，进入 PrepareInput/AwaitInput；OUT_OF_SCOPE 要求无步骤，输出服务范围说明并正常结束，不视为结构错误。固定计划摘要/hash 后发布 PlanContext；执行中不自动改计划。
+PlanValidator 只检查计划结构和静态安全约束，不在批准前向设备发送请求，也不替代执行前归属/权限校验。
+KNOWLEDGE_CONSULT 的 requiresKnowledgeBase 必填；其他类型该字段为空。常识不查库；专用知识需库，类型筛选复用003规则。缺少标记或未知类型进入同一澄清等待分支，危险绕过控制路径直接拒绝。尚未发布正式计划的澄清回答可重新进入Planner；已发布计划只补充未决目标/参数的运行时绑定，不改变步骤定义、种类和顺序，新增目标或步骤必须取消旧计划后重新规划。
+FAULT_DIAGNOSIS 消费用户输入、前序 DEVICE_QUERY 证据和知识，不内嵌设备读取/控制；需要修复或复检时计划必须已有独立步骤，否则说明需重新生成计划。
+模型结构错误与外部超时分开：非法结构不作网络重试；明确服务错误不重试；超时由统一边界有限重试。
 
-```json
-{
-  "outcome": "SINGLE",
-  "intent": "DIAGNOSIS",
-  "diagnosisMode": "AFTERSALES",
-  "requiresKnowledgeBase": null,
-  "targetHint": null,
-  "clarifyQuestion": null
-}
-```
+## 4. PlanRouter 与结果
 
-不接受模型给出的confirmed、userId、role、verifiedDeviceId、接口URL或执行权限。未知额外字段不参与授权和分发，类型/枚举/字段组合不合法时不得“尽量猜出”控制目标。
+PlanRouter 是纯确定性节点，读取 PlanContext.currentStep 对应 type，静态映射四个节点/子图。不能再调用 LLM 选择执行入口。
+先评估受限条件；false 输出 SKIPPED 候选并转 CompleteStep，缺失证据/条件计算错误则转 Reject，不能把缺失当 false 或默认 true。
+CompleteStep 仅在成功或正常跳过后提交结果和推进游标；失败保留先前结果并终止，剩余步骤 NOT_EXECUTED。ResponseAggregator 使用已提交步骤结果组织最终回答，不再次调用设备。
+KnowledgeConsult 真实适配复用003知识链、用户缓存与共享索引；原KnowledgeCapabilityHandler的业务迁到知识服务后删除旧handler及CapabilityRequest/Result/text sink。Query/Diagnosis/Control各用专用子图。stub与real使用图节点契约，真实模式未实现者明确不可用；最终没有旧dispatcher或混合诊断runner可供回退。
 
-## 3. 路由规则与失败
+## 5. 超时与重试参数
 
-| 条件 | 公共行为 | 设备访问 |
-| --- | --- | --- |
-| 四类明确单一意图 | 显式映射业务AssistantCapability并投递已注册处理器 | 公共路由本身零设备读写 |
-| 通用常识 | KNOWLEDGE，requiresKnowledgeBase=false | 无需查询知识库 |
-| 型号知识 | KNOWLEDGE，requiresKnowledgeBase=true | 依赖知识库，不因此查询本人设备 |
-| 结合本人设备参数解释、比较、估算或建议 | DEVICE_QUERY，requiresKnowledgeBase=null | 只读，需归属校验与真实参数；不因解释/估算而转复合意图 |
-| 明确售后 | DIAGNOSIS + AFTERSALES | 不先探测或控制 |
-| 意图不明 / 非法类型 / 矛盾结构 / 未知分类 | CLARIFYING + awaiting，使用脱敏澄清文案 | 零读写 |
-| 多意图 / 条件请求 / 多设备写 | CLARIFYING，要求选择本轮事项 | 零读写 |
-| 本人设备元数据列表 | 单一DEVICE_QUERY | 不误判成批量控制 |
-| 范围外请求 | 固定服务范围说明，正常结束 | 零读写 |
-| 模型连接/超时/认证/提供商服务失败 | FAILED_REQUEST + AI_SERVICE_UNAVAILABLE | 零读写，不mock成功 |
-| SINGLE但能力未注册 | FAILED_REQUEST + CAPABILITY_NOT_AVAILABLE | 零读写，无旧DEVICE_ACTION回退 |
+统一配置前缀 autosense.graph；计划模型无权覆盖服务端预算。
 
-解析器抛出的结构错误与传输错误必须分开处理；空文本/无法形成合法输出属于结构失败。用户看不到原始模型JSON、提示词或供应商错误正文。
+| 配置 | 规划默认 |
+| --- | --- |
+| mode | real；stub 仅显式开发/测试 profile |
+| max-plan-steps | 8 |
+| planner-timeout-seconds | 30 |
+| step-timeout-seconds（KNOWLEDGE_CONSULT/FAULT_DIAGNOSIS） | 60 / 60 |
+| step-timeout-seconds（DEVICE_QUERY/DEVICE_CONTROL） | 10 / 10 |
+| max-retries | 2，指首次尝试之后至多两次 |
+| retry-delay-millis | 1000，固定间隔，可配置 |
+| approval-ttl-seconds | 300 |
+| expensive-step-threshold-seconds | 30（步骤超时 ≥ 阈值） |
+| execution-slice-timeout-seconds | 300，不包含人工等待和 WAITING_RESUME |
+| max-graph-iterations | 256；防错误图无限转移，不表示允许业务循环 |
 
-## 4. AssistantCapabilityHandler 内部契约
-
-core/routing 中定义一份接口和分发器，以 domain/enums/AssistantCapability 为注册键，显式映射AI分类。接口只承担必要的能力声明和处理/续办，不按功能另造基础平台。
-
-**输入 CapabilityRequest**（不可变 record，历史/上下文集合复制为只读快照）：
-
-- 服务端已认证的AuthUser、sessionId、reportId、round、当前messageId。
-- 当前content、可选兼容confirmRepair意向、所属等待态/能力上下文。
-- 已验证能力、售后子模式、requiresKnowledgeBase 判断及未验证targetHint。业务等待续接不重新分类，此判断为空，由原处理器恢复自身上下文。
-- 固定历史边界与本次处理截止；不给处理器任意其他用户历史。
-
-**行为**：
-
-- 处理器通过异步完成契约返回用户可见结果、等待提示或明确失败；公共编排负责一致的最终持久化与SSE关闭。
-- 流式文本经公共sink输出；内部分类和推理不进入sink。完成/异常回调最多结清一次。
-- 业务状态迁移由公共状态机和追溯入口验证；处理器不能直接覆盖其他轮的会话状态。
-- handler接收成功不是业务成功。生产缺失处理器明确报错，注册重复在启动时失败。
-- 等待状态属于原能力：后续输入先由它判定续办、取消或失效；需要新一轮路由时，先持久化旧等待处理结果。旧confirmRepair不直接调用修复runner。
-- 设备查询/诊断/控制的目标解析、当前账号有效性与设备归属在服务端再次核对，公共分发传入的线索不构成授权。
-- 控制只可经005确定性入口；候选生成、消息租约和分发都不能替代005的权限/参数/确认/审计。
-- 002保留旧领域代码以供复用，不为每条历史DEVICE_ACTION推断一个新处理器。
-
-测试专用实现只记录capability/userId/sessionId/round/messageId并返回明确测试标记；它们放src/test，生产Bean扫描不可见。模拟模型模式也不能自动注册这些测试业务处理器。
-
-## 5. AI 配置目标
-
-| 配置键 / 环境变量 | 现有或新增 | 目标 |
-| --- | --- | --- |
-| autosense.llm.mode / LLM_MODE | 现有 | real默认；只接受real/mock，未知值启动失败 |
-| autosense.llm.base-url / LLM_BASE_URL | 现有 | real模式合法HTTP(S)地址，不硬编码凭据 |
-| autosense.llm.api-key / LLM_API_KEY | 现有 | real非空，日志与接口不输出 |
-| autosense.llm.model-name / LLM_MODEL_NAME | 现有 | real非空，实际代理请求使用配置值 |
-| autosense.llm.temperature / LLM_TEMPERATURE | 现有 | 校验为有限数值；仅校验本地明确声明的提供商范围，不推断任意兼容端点的能力 |
-| autosense.llm.timeout-seconds / LLM_TIMEOUT_SECONDS | 现有 | 正数，规划默认30秒，可按部署调整 |
-| autosense.llm.max-retries / LLM_MAX_RETRIES | 新增 | 非负整数，默认0；流式不重放 |
-| autosense.chat-memory.window / CHAT_MEMORY_WINDOW | 现有 | 本规格为20，其他值需明确拒绝不一致配置 |
-| autosense.assistant.processing-timeout-seconds / ASSISTANT_PROCESSING_TIMEOUT_SECONDS | 新增 | 单消息固定总截止，默认120秒，正数且大于一次模型超时 |
-| autosense.assistant.session-lease-seconds / ASSISTANT_SESSION_LEASE_SECONDS | 新增 | 默认30秒，正数；续租间隔小于租约 |
-| autosense.assistant.session-renew-seconds / ASSISTANT_SESSION_RENEW_SECONDS | 新增 | 默认10秒，正数 |
-| autosense.assistant.context-ttl-seconds / ASSISTANT_CONTEXT_TTL_SECONDS | 新增 | 默认1800秒，正数 |
-
-这些默认值用于确定可观察的结束与恢复，不是新增业务SLA。模型多次调用共享单消息总截止；截止后回调不能继续写历史。SSE超时从公共配置派生并与处理截止协调，不使用独立的更短硬编码超时来伪装完成。
-
-同步和流式模型均明确关闭原始请求/响应日志，外层仅记录英文operation、结果、耗时与关联标识；SDK回调显式恢复白名单日志上下文。日志配置、事件及脱敏见[公共日志契约](logging-contract.md)，不把MDC或模型输出当作可信身份。
-
-真实模式工厂还须在发布代理前校验实际方法引用的六资源、UTF-8默认字符集、非空与变量绑定；AiServices.build()不能替代此检查。资源/编码/模板错误是本地配置失败，不按模型非法输出进行澄清或使用内联回退；具体启动/调用失败边界见[prompt契约](prompt-contract.md)。不新增prompt路径或远程管理配置。
-
-配置验证不调用远程模型；模型协议连通性在运行验收中检查。提供商拒绝参数时返回明确的AI服务错误，不宣称启动时已验证所有远程能力。仅有合法配置字符串或接口声明不满足AIService重写完成要求。
-
-## 6. 兼容与验收
-
-- 公开接口不增加RoutingDecision字段；ProblemReport.intent只写本轮结果，历史旧字符串保持可读。
-- 002对真实AIService代理的测试可用本地模型HTTP协议替身；设备路径不能因此变成项目内设备mock。
-- 验证四种SINGLE、售后、型号、CLARIFY/COMPOSITE/OUT_OF_SCOPE、非法输出、服务失败、缺失处理器与测试装配隔离。
-- 真实代理的实际模型名/地址/参数、输出解析与TokenStream回调均须被测试捕获；代码检查确认没有原来的四条低层直调旁路。
-
-- AI输出record必须通过实际LangChain4j解析路径验证；Spring HTTP ObjectMapper的序列化成功不能替代SDK自身codec测试。未知字段不参与授权，缺失或矛盾值仍按本契约校验。
-- 捕获实际日志验证英文固定模板、关联传播及无原始模型内容；配置切换、非法输出、超时与回调失败不泄露密钥或供应商正文。
-- 实际四代理请求证明系统与用户资源加载、JSON参数还原、本次一次、无用户资料进入系统角色；覆盖字面花括号及配置失败零模型调用。Boot JAR六资源与源文件逐字节一致，SDK自动输出格式说明允许保留。
+步超时是一次步骤尝试的绝对截止，步骤内多个外部调用共享该次截止；记录 callId 并复用已成功子调用，避免重试整个节点导致成功调用重复。各 SDK timeout 不得超过剩余截止；LLM/embedding/device SDK 内置重试统一关闭，由图唯一管理预算。
+活跃区间总截止优先于任何后续重试；到期停止整个计划并保留结果，不能以不断重试续期。确认/重启等待退出活跃区间，resume 创建新的活跃区间但不重置步骤重试次数。
+明确 HTTP 4xx/5xx、解析错误、业务拒绝不可重试；仅请求超时进入重试判定，不把所有连接异常归类为 timeout。
+控制操作只有具有远端稳定去重或等效安全保证时允许重发；现有模拟器无此能力，结果未知时直接 DEVICE_RESULT_UNKNOWN 并终止。用于核对结果的设备读必须是已确认的独立查询，不在控制中偷偷执行。

@@ -91,6 +91,8 @@ class LoggingInfrastructureTest {
             isolated.start(config);
             assertThat(config.getAppender("Console").getLayout().toString()).contains("override level=%p");
             assertThat(config.getRootLogger().getLevel().name()).isEqualTo("INFO");
+            assertThat(config.getLoggerConfig("org.bsc.langgraph4j.CompiledGraph").getLevel().name()).isEqualTo("OFF");
+            assertThat(config.getLoggerConfig("org.bsc.async.AsyncGenerator").getLevel().name()).isEqualTo("OFF");
         } finally {
             if (previous == null) System.clearProperty("CONSOLE_LOG_PATTERN");
             else System.setProperty("CONSOLE_LOG_PATTERN", previous);
@@ -129,7 +131,7 @@ class LoggingInfrastructureTest {
                     var conversation = new org.apache.logging.log4j.core.impl.Log4jLogEvent.Builder(event)
                             .setContextData(context).build();
                     assertThat(layout.toSerializable(conversation).toString()).contains(
-                            "[requestId=" + requestId + ", userId=1, sessionId=9, messageId=41, round=3, deviceId=] ");
+                            "[requestId=" + requestId + ", userId=1, sessionId=9, messageId=41, round=3] ");
                 }
             }
         } finally {

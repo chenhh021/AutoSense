@@ -28,6 +28,7 @@ import static org.mockito.Mockito.*;
 
 /** Real HTTP/SSE, MySQL and Redis with actual cached AiServices and local models. */
 @Import(KnowledgeConversationIT.KnowledgeModels.class)
+@org.springframework.test.context.TestPropertySource(properties = "autosense.graph.mode=real")
 class KnowledgeConversationIT extends AbstractIntegrationIT {
     @Autowired UserAiServiceCache cache;
     @Autowired JdbcTemplate jdbc;
@@ -115,21 +116,22 @@ class KnowledgeConversationIT extends AbstractIntegrationIT {
         verifyNoInteractions(devices);
     }
 
-    @Test void databaseExpiryRejectsLateEnhancedCompletionAndLeavesNoSuccessfulAnswer() throws Exception {
+    @Test void lostExecutionClaimRejectsLateEnhancedCompletionAndReadDoesNotExecute() throws Exception {
         probe.entered = new CountDownLatch(1); probe.release = new CountDownLatch(1);
         try (var worker = Executors.newSingleThreadExecutor()) {
             var response = worker.submit(() -> restTemplate.exchange(url("/api/v1/sessions"), HttpMethod.POST,
                     new HttpEntity<>(Map.of("problem", "light 型号参数"), authHeaders(token)), String.class).getBody());
             assertThat(probe.entered.await(10, TimeUnit.SECONDS)).isTrue();
             Long id = jdbc.queryForObject("SELECT id FROM repair_session WHERE user_id=? ORDER BY id DESC LIMIT 1", Long.class, userId);
-            jdbc.update("UPDATE repair_session SET processing_deadline_at=DATE_SUB(NOW(), INTERVAL 1 SECOND) WHERE id=?", id);
+            String requestId = jdbc.queryForObject("SELECT active_workflow_request_id FROM repair_session WHERE id=?", String.class, id);
+            jdbc.update("UPDATE workflow_execution SET lease_until=TIMESTAMPADD(SECOND,-1,UTC_TIMESTAMP(6)) WHERE request_id=?", requestId);
             var detail = restTemplate.exchange(url("/api/v1/sessions/" + id), HttpMethod.GET,
                     new HttpEntity<>(authHeaders(token)), JsonNode.class).getBody();
-            assertThat(detail.path("status").asText()).isEqualTo("FAILED_REQUEST");
+            assertThat(detail.path("workflow").path("status").asText()).isEqualTo("RUNNING");
             probe.release.countDown();
-            // The persisted pointer is authoritative even if a late provider returns successfully.
+            // The expired database fence rejects the late result; GET does not settle or replay work.
             response.get(10, TimeUnit.SECONDS);
-            assertThat(jdbc.queryForObject("SELECT status FROM repair_session WHERE id=?", String.class, id)).isEqualTo("FAILED_REQUEST");
+            assertThat(jdbc.queryForObject("SELECT status FROM workflow_execution WHERE request_id=?", String.class, requestId)).isEqualTo("WAITING_RESUME");
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM chat_message WHERE session_id=? AND content LIKE '%document/light/%'",
                     Integer.class, id)).isZero();
         } finally { probe.release.countDown(); probe.entered = null; }
@@ -145,7 +147,7 @@ class KnowledgeConversationIT extends AbstractIntegrationIT {
         assertThat(cache.getOrCreate(new AuthUser(userId))).isSameAs(bundle);
         var history = restTemplate.exchange(url("/api/v1/sessions/" + id + "/messages"), HttpMethod.GET,
                 new HttpEntity<>(authHeaders(token)), JsonNode.class).getBody();
-        assertThat(history).hasSize(4);
+        assertThat(history).hasSize(6); // Each turn records USER, committed STEP_RESULT and final CONCLUSION.
         assertThat(history.toString()).doesNotContain("answerContext", "queryText", "evidence");
         verifyNoInteractions(devices);
     }

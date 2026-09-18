@@ -1,6 +1,5 @@
 package com.chh.autosense.core.session.memory;
 
-import com.chh.autosense.core.session.SessionProcessingService.Accepted;
 import com.chh.autosense.mapper.ChatMessageMapper;
 import com.chh.autosense.mapper.RepairSessionMapper;
 import com.chh.autosense.exception.ApiException;
@@ -22,17 +21,17 @@ public class ConversationHistoryService {
     }
 
     @Transactional(readOnly = true)
-    public ConversationHistorySnapshot snapshot(Accepted accepted) {
-        var session = sessions.selectOneById(accepted.sessionId());
-        var current = messages.selectOneById(accepted.messageId());
-        if (session == null || !Objects.equals(session.getUserId(), accepted.userId())
-                || current == null || !Objects.equals(current.getSessionId(), accepted.sessionId())
+    public ConversationHistorySnapshot snapshot(long userId, long sessionId, long messageId) {
+        var session = sessions.selectOneById(sessionId);
+        var current = messages.selectOneById(messageId);
+        if (session == null || !Objects.equals(session.getUserId(), userId)
+                || current == null || !Objects.equals(current.getSessionId(), sessionId)
                 || !"USER".equals(current.getRole())) {
-            throw new ApiException(ErrorCode.SESSION_NOT_FOUND, "会话不存在", accepted.sessionId());
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND, "会话不存在", sessionId);
         }
-        var entries = messages.historyBefore(accepted.sessionId(), accepted.messageId()).stream()
+        var entries = messages.historyBefore(sessionId, messageId).stream()
                 .map(m -> new ConversationHistorySnapshot.Entry(m.getId(), m.getRole(), m.getContent()))
                 .sorted(Comparator.comparingLong(ConversationHistorySnapshot.Entry::id)).toList();
-        return new ConversationHistorySnapshot(accepted.sessionId(), accepted.messageId(), entries);
+        return new ConversationHistorySnapshot(sessionId, messageId, entries);
     }
 }

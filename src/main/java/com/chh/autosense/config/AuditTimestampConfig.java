@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
  * 需在应用层填充。
  */
 @Configuration
+@org.springframework.context.annotation.Lazy(false)
 public class AuditTimestampConfig {
 
     private static final Class<?>[] ENTITIES = {

@@ -72,4 +72,13 @@ class DeviceLockIT extends AbstractIntegrationIT {
         assertThat(lockService.tryLock(DEVICE_ID, 100L)).isTrue();
         assertThat(lockService.tryLock(DEVICE_ID, 101L)).isFalse();
     }
+
+    @Test void lateWorkerCannotReleaseTheNextAttemptLock() {
+        String oldOwner = java.util.UUID.randomUUID().toString(), newOwner = java.util.UUID.randomUUID().toString();
+        assertThat(lockService.tryLock(DEVICE_ID, oldOwner)).isTrue();
+        lockService.release(DEVICE_ID, oldOwner);
+        assertThat(lockService.tryLock(DEVICE_ID, newOwner)).isTrue();
+        lockService.release(DEVICE_ID, oldOwner);
+        assertThat(redis.opsForValue().get(DeviceLockService.KEY_PREFIX + DEVICE_ID)).isEqualTo(newOwner);
+    }
 }

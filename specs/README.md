@@ -1,51 +1,53 @@
 # AutoSense Feature 规格总览
 
-**Updated**: 2026-09-07
+**Updated**: 2026-09-15
 
-AutoSense 提供统一 IoT 自然语言 AI 助手，覆盖知识咨询、本人设备信息与状态查询、故障诊断和安全设备控制。公共基础统一承载身份、设备管理、会话及四能力路由；AI 负责自然语言理解、知识检索、信息组织和诊断推理。**设备状态变更必须经过确定性的权限检查、参数校验、用户确认和审计，AI 不得直接控制设备。**
+AutoSense 提供统一 IoT 自然语言 AI 助手，覆盖知识咨询、本人设备信息与状态查询、故障诊断和安全设备控制。公共基础通过意图计划器生成有序步骤，LangGraph4j 主图负责校验、确定性路由、步骤推进、恢复与结果汇总；AI 负责理解、检索、组织和诊断推理。**所有设备查询及设备请求必须先取得用户确认；状态变更必须通过确定性的权限检查、参数校验和审计，AI 不得绕过流程。**
 
 本次将原混合规格拆为以下 **5 个 feature**。沿用 `001-iot-auto-diagnosis` 作为诊断目录，新增其余四个目录；编号用于稳定标识，不代表开发顺序。
 
 | Feature | 当前规格 | 边界与交付价值 | 现有成果如何复用 |
 | --- | --- | --- | --- |
-| 002 公共基础与统一路由 | [spec.md](002-assistant-foundation/spec.md) | 统一四能力入口、身份/权限、设备管理、会话与公共响应 | 复用用户控制、SN 绑定、DTO、鉴权、会话、SSE；**Intent Router 与 AI Config 基于 LangChain4j AI Service 重写** |
+| 002 公共基础与统一意图计划器 | [spec.md](002-assistant-foundation/spec.md) | 四能力多步计划、确认、重试、幂等、检查点、身份/权限和公共响应 | 复用用户、设备、DTO、会话与 SSE；LangChain4j AI Service 生成计划，LangGraph4j 执行并流式输出 |
 | 003 IoT 与设备知识咨询 | [spec.md](003-iot-knowledge-assistant/spec.md) | 解释概念、设备功能、型号与使用方法，说明依据；不读取用户设备实时状态 | 复用直接回答及现有知识内容/检索服务，补齐来源和知识不足处理 |
-| 004 用户设备信息与状态查询 | [spec.md](004-user-device-query/spec.md) | 自然语言查询本人设备列表、元数据与单台实时状态；只读 | 复用绑定、定位、归属检查、客户端/适配能力，不通过启动诊断来查询 |
-| 001 设备故障诊断 | [spec.md](001-iot-auto-diagnosis/spec.md) | 只读证据采集、规则与知识推理、结论/建议、修复候选与售后引导 | 复用分析、规则、维修知识、快照和售后；将设备写职责移交 005 |
-| 005 安全设备控制 | [spec.md](005-safe-device-control/spec.md) | 对直接指令或诊断候选统一校验、确认、互斥执行、审计与复检 | 复用设备执行器、适配器、锁及动作日志，补齐安全与幂等边界 |
+| 004 用户设备信息与状态查询 | [spec.md](004-user-device-query/spec.md) | 经确认的独立只读步骤，覆盖元数据、实时查询、诊断取证和控制后复检 | 复用绑定、定位、归属检查及客户端/适配器，不由诊断或控制隐式读取 |
+| 001 设备故障诊断 | [spec.md](001-iot-auto-diagnosis/spec.md) | 特化知识检索、证据与规则推理、结论/建议、修复候选及售后引导 | 消费独立查询结果，复用分析、规则、知识与售后，节点不访问设备 |
+| 005 安全设备控制 | [spec.md](005-safe-device-control/spec.md) | 对直接指令或诊断候选统一校验、确认、互斥执行和审计 | 复用执行器、适配器、锁及日志；前置状态与复检通过独立 004 步骤取得 |
 
 ## 依赖与推进顺序
 
 1. **先规划 002**：复用并回归已有基础，明确实际调用的 AI Service 创建、配置和结构化输出；不把新目录存在或已声明接口当作完成重写。
 2. **002 的公共契约稳定后，003、004、001、005 可分别规划和验收**。它们依赖共享能力，不必等待其他对话能力全部实现。
-3. **001 + 005 共同验收诊断修复闭环**：001 生成候选并移交，005 重新校验、展示确认、执行、审计和复检，001 根据返回事实组织诊断结论。005 未启用时，001 仍可交付诊断建议并说明无法提交执行。
-4. 003 和 001 复用同一现有知识基础；004、001、005 复用设备定位与客户端。此类复用不等于各自入口之间互相调用，也不要求新建平行的用户/设备/知识台账。
+3. **002 + 004 + 001 + 005 验收诊断修复闭环**：已声明计划按需包含查询取证、诊断、控制及独立复检查询；每个设备步骤分别确认，主图汇总已有结果。诊断不隐式读写设备，不回跳已完成步骤；控制未启用时保留诊断建议并说明不能执行。
+4. 003 和 001 复用当前知识基础；004/005 复用设备定位、客户端及互斥机制，001 消费查询结果。此类复用不要求新建平行台账或相互调用对话入口；先用 stub 跑通公共图骨架，再逐项接入真实能力。
 
 ```mermaid
 flowchart TD
-    F["002 公共基础与统一路由"] --> K["003 知识咨询"]
+    F["002 意图计划器与主图"] --> K["003 知识咨询"]
     F --> Q["004 设备信息与状态查询"]
     F --> D["001 故障诊断"]
     F --> C["005 安全设备控制"]
-    D -->|"待确认修复候选"| C
-    C -->|"执行与复检事实"| D
+    Q -->|"步骤结果"| R["002 结果汇总及后续步骤引用"]
+    D -->|"诊断与修复候选"| R
+    C -->|"实际执行结果"| R
     C -->|"校验、确认、审计通过后"| W["设备状态变更"]
 ```
 
-图中诊断与控制间的箭头表示业务交接与结果回传，不要求双向代码依赖；具体编排在 plan 中定义并遵守章程的无循环依赖要求。
+主图控制执行顺序和条件；步骤通过明确结果引用传递事实，复检是独立查询步骤，诊断与控制之间不建立递归调用或回跳。
 
 ## 统一边界与首期假设
 
 - **意图**：知识咨询、设备查询、故障诊断、安全控制四类必须区分；意图不明确先澄清，不能默认控制。型号知识属于咨询，明确售后查询属于诊断 feature 的售后引导分支，无需先探测设备。
-- **读写**：知识咨询不访问用户设备状态；设备查询与诊断只读，仍须服务端鉴权；AI 输出的动作只是假设/候选，不是已通过校验的命令或用户确认。
-- **确认**：全部状态变更都需明确确认；确认绑定具体用户、轮次、请求、设备、动作、参数与有效期，不得跨轮次、改参数或永久复用。
-- **复合请求**：首期每轮先明确一项办理事项；控制为单设备单动作、实时查询为单设备。本人设备元数据列表可一次返回多台设备，不提供批量写、定时或条件自动化。
+- **读写**：知识和诊断节点不访问设备；诊断是特化知识检索/推理，取证及复检均为独立查询步骤，控制仅通过独立安全控制步骤。AI 输出不是已通过校验的命令或用户确认。
+- **确认**：所有设备查询和请求均须明确确认；确认绑定用户、计划、逻辑步骤、设备、操作、参数及有效期。同一步骤内容未变且确认有效时重试/恢复可复用；新步骤、内容变更或过期须重新确认，每次请求仍校验权限和幂等。
+- **复合请求**：支持有序多步、条件分支和前序结果引用；每个控制步骤为单设备单动作，实时查询为单设备，元数据列表可多设备。不动态增删步骤或循环；需要新增步骤时重新生成计划，不继承旧授权。
+- **失败与恢复**：仅超时且幂等、确认和预算允许时有限自动重试；明确错误、拒绝或耗尽停止整计划，后续步骤不执行、已完成结果保留且不自动回滚。重启后本人明确请求继续才恢复未终止计划；已成功步骤复用结果，已终止计划不可恢复。
 - **知识**：以已有维修知识及提供给项目的设备资料为首期来源，通用概念可直接解释；型号事实和修复方案须检索适用依据，无依据时明确说明，不编造。在线搜索和完整知识运营平台不在首期。
 - **设备**：沿用独立 deviceSimulator；智能灯泡 LITE/LA001、LITE/LB001 作为首期实时状态、诊断与控制验收对象。不支持型号仍可绑定、查询稳定信息并进行有依据的知识咨询。
 - **兼容**：保留已有账号/角色、SN 全局唯一、用户显示名称、本人设备/会话隔离、长期对话、最近 20 条模型历史与现有流式交互；仅按职责迁移必要类型和调用边界。
 - **资料状态**：已有源码、历史已完成任务和验证记录是复用依据，不能证明五项新规格已完成。实际代码缺口与新增验收在各自 plan/tasks 中列出。
 
-上述复合请求和知识来源限制是基于现有范围采用的首期假设，不作为额外向用户确认过的结论；若后续扩展，更新所属 feature 即可。
+2026-09-15 的多步、确认、重试与恢复规则以 002 的五项澄清为准；本次图接入仍处于设计阶段，历史验收不证明新要求已经实现。
 
 ## 现有代码归属与重写范围
 
@@ -55,12 +57,12 @@ flowchart TD
 | --- | --- | --- |
 | `controller/UserController`、`AdminUserController`、`service/user`、`core/security` | 002 | 复用并回归；修复相关分层或令牌撤销缺口时按章程处理 |
 | `controller/DeviceController`、`core/device/DeviceRegistryService`、设备绑定实体/Mapper | 002 | 保持 SN 绑定、元数据和权限契约，不重新开发一套设备管理 |
-| `domain/dto`、`domain/message`、`core/session`、公共响应/异常 | 002 | 复用公共模型、会话和流；各能力负责自己的业务状态，按职责补齐共享契约 |
-| `core/routing/IntentClassifier`、`domain/enums/Intent`、`config/LangChain4jConfig` | 002 | **重写/调整**：四能力分类、真正接入 AI Service、工厂与结构化输出；原合并的 DEVICE_ACTION 不能继续表示两个能力 |
-| `core/routing/DirectAnswerer`、`service/knowledge/RepairKnowledgeService` | 003；知识服务亦由 001 复用 | 接入统一 AI Service，补齐咨询检索、来源和缺失处理；不声称已有完整向量检索 |
-| `core/session/DeviceLocator`、`core/device/client`、`adapter`、归属校验 | 002 维护共享能力，004/001/005 使用 | 004 新增自然语言只读查询编排；不复制客户端或把读取绑定到诊断状态机 |
+| `domain/dto`、`domain/message`、`core/session`、公共响应/异常 | 002 | 保留公共模型、历史查询、事务与租约；旧编排、状态机、上下文续接、能力分发和回调驱动链已删除，graph为唯一执行引擎 |
+| `ai/IntentPlannerService`、`ai/factory/IntentPlannerServiceFactory`、`graph/node/PlanValidator` | 002 | AI Service 生成计划，服务端确定性校验与路由；旧分类器、候选和路由装配已删除 |
+| `service/knowledge/KnowledgeWorkflowService`、`UserAiServiceCache`、`ai/rag` | 003；检索亦由 001 复用 | 图节点调用直接/增强回答与来源校验；保留用户缓存、专用工厂和共享内存索引；旧handler及能力分发协议已删除 |
+| `core/session/DeviceLocator`、`core/device/client`、`adapter`、归属校验 | 002 维护共享能力，004/005 使用，001 消费结果 | 查询及复检经独立确认步骤，不复制客户端或把读取隐藏在诊断/控制中 |
 | `core/analysis`、`core/device/rule`、诊断快照/问题报告、`core/aftersales` | 001 | 收敛只读诊断与建议，复用现有规则、知识和人工/售后分支 |
-| `core/repair/RepairExecutor`、`core/session/RepairExecutionRunner`、`DeviceLockService`、`RepairActionLog` | 005；锁机制与诊断共享 | 收敛确定性设备写路径、有效确认、并发/重复执行防护及审计 |
+| `core/repair/RepairExecutor`、`core/session/RepairExecutionRunner`、`DeviceLockService`、`RepairActionLog` | 005；设备步骤共享互斥机制 | 复用安全单操作、锁及审计，拆解并删除RepairExecutionRunner；控制和独立查询子图承担流程，诊断不直接操作设备 |
 
 目录规范由[constitution.md](../.specify/memory/constitution.md)统一定义：`ai/factory` 创建 LangChain4j AI Service，`ai/model` 定义 AI 结构化输出，`ai/model/enums` 存放 AI 分类枚举；业务枚举归 `domain/enums`，VO 归 `domain/vo`，全局常量归 `constant`，工具目录为 **`utils`**。
 
@@ -74,11 +76,11 @@ flowchart TD
 | FR-002 | 002 FR-003；001 FR-002 | 通用意图澄清与诊断症状提取分别归属 |
 | FR-003 | 001 FR-003；004 FR-003；005 FR-002 | 复用唯一目标定位，不重复建设 |
 | FR-004 | 001 FR-004；005 FR-004；004 FR-004/006 | 诊断/控制按支持能力拦截，元数据查询不受诊断白名单限制 |
-| FR-005 | 001 FR-005；004 FR-005 | 共享只读设备接入，区分诊断证据与查询结果 |
+| FR-005 | 001 FR-005；004 FR-005/008 | 004 经确认采集，001 消费证据，不隐式读取 |
 | FR-006 | 001 FR-006 | 规则与诊断推理，不直接控制 |
 | FR-007 | 001 FR-007；003 FR-002/009 | 复用维修知识；新增咨询检索职责 |
 | FR-008 | 001 FR-008；005 FR-001 至 FR-009 | 诊断移交，控制统一校验/确认/执行 |
-| FR-009 | 005 FR-011/014；001 FR-009 | 控制复检并回传事实，诊断组织结论 |
+| FR-009 | 005 FR-011/014；004 FR-008；001 FR-009 | 独立确认查询承担复检，主图汇总执行与诊断事实 |
 | FR-010 | 001 FR-010 | 人工步骤 |
 | FR-011 | 001 FR-011 | 售后引导与可靠兜底 |
 | FR-012 | 001 FR-012；005 FR-004 | 延续设备扩展约束及允许能力校验 |
@@ -86,7 +88,7 @@ flowchart TD
 | FR-014 | 001 FR-014；004 FR-007；005 FR-010/011 | 不可达/失败按能力给出真实结果 |
 | FR-015 | 002 FR-009；004 FR-002；001 FR-003；005 FR-003/007 | 公共鉴权及设备使用/执行时校验 |
 | FR-016 | 001 FR-016；005 FR-008 | 诊断与控制协调设备互斥 |
-| FR-017 | 005 FR-010/011；001 FR-009/010 | 失败停止、不自动重试、复检并引导 |
+| FR-017 | 002 FR-017/020；005 FR-010/011；001 FR-009/010 | 超时有限重试，明确失败/拒绝/耗尽停整计划；复检须独立确认查询 |
 | FR-018 | 002 FR-012 | 会话长期保留、20 条历史及新轮次重新路由 |
 | FR-019 | 002 FR-001/002/003；003 FR-001/002 | 重写四能力路由，咨询和诊断/控制分离 |
 | FR-020 | 002 FR-010/011 | 原 SN 绑定要求全部保留 |
@@ -131,10 +133,20 @@ flowchart TD
 | Completion Signals | Resolved | 按场景和实际设备调用次数可验收 |
 | Misc / Placeholders | Clear | 无未填写的需求占位符 |
 
-## 当前规划状态
+## 当前实施状态与历史记录
+
+2026-09-15实施完成：002的[83项任务](002-assistant-foundation/tasks.md)全部完成。LangGraph4j已接管对话计划、人工确认、步骤执行与SSE输出，五类逻辑持久数据已接入，SessionOrchestrator及旧编排专属实现已删除。默认验证205项、包含集成测试的完整验证257项全部通过；三组独立JVM恢复、12个prompt资源的可执行JAR验收及前端构建与界面验收通过，详见[本期验证记录](002-assistant-foundation/validation-langgraph.md)。业务数据库未自动迁移，部署前按[迁移与运行指南](002-assistant-foundation/quickstart.md)操作。外部模型验证采用显式mock与真实SDK代理，未调用真实模型提供商。以下为各阶段的历史记录；004/005新增业务范围仍需独立规划。
+
+2026-09-15任务生成：002的[新任务清单](002-assistant-foundation/tasks.md)包含83项待办（US1 15、US2 5、US3 42、公共及收尾21），覆盖G1–G5、五类数据与旧编排删除。旧59项完成记录（最初56项及3项追加）已原字节归档，本轮未实施新任务。
+
+2026-09-15持久化修订：对话流程按conversation、chat_message、workflow_execution、command_execution、audit_event五类逻辑数据组织。conversation复用repair_session，消息沿用chat_message，audit_event扩展repair_action_log；新增工作流与命令账本，步骤/确认/checkpoint作为工作流内部辅助存储。取消前版新增workflow_event表方案，公开WorkflowEvent仍是DTO。字段/迁移/验收见[数据模型](002-assistant-foundation/data-model.md)，本次仅更新规划。
+
+2026-09-15补充：LangGraph4j迁移完成必须删除SessionOrchestrator和旧编排专属源码、Bean、配置依赖及当前设计，不保留精简门面或回退执行链。002计划新增删除/迁移矩阵、FR-022/SC-011及G5删除验收；003接入说明和005复用边界已同步。旧编排图与早期迁移草案标为历史档案；本轮仅更新规划文档，尚未删除生产代码或重写任务清单。
+
+2026-09-15：002 已按用户指定的 LangGraph4j 主图、分组 state、流式输出及 stub 优先方式完成研究与设计，见[新计划](002-assistant-foundation/plan.md)。五份现行 spec 已同步多步计划、设备查询确认、诊断不隐式读写、有限超时重试和重启后用户恢复边界。001/003 既有 plan/tasks 及历史验证保留，004/005 待独立规划；下方记录均为对应日期的历史结果，不代表新图接入已完成。
 
 2026-09-07：**002-assistant-foundation** 已完成 Phase 0 研究及 Phase 1 设计，见[实施计划](002-assistant-foundation/plan.md)、[研究结论](002-assistant-foundation/research.md)、[数据模型](002-assistant-foundation/data-model.md)和[验证指南](002-assistant-foundation/quickstart.md)，接口与路由契约由计划链接。设计保留六个公共Entity的Lombok调整、现有record兼容和[Log4j 2英文日志契约](002-assistant-foundation/contracts/logging-contract.md)。本轮按章程 **2.3.0** 增加[prompt资源与绑定契约](002-assistant-foundation/contracts/prompt-contract.md)：四个系统资源、两个用户包装、方法级fromResource、本地装配校验、JSON输入编码及真实代理/JAR验收；其他四个feature的范围保持原划分。工程默认超时和并发隔离已明确，不新增未经验证的生产SLA。
 
-当前Spec Kit入口为002，实际Git分支为master。
+该次规划时 Spec Kit 入口为 002，实际 Git 分支为 master；2026-09-15 的 Spec Kit 入口仍为 `002-assistant-foundation`，实际 Git 分支为 `dev`，本次未切换分支。
 
-2026-09-08：**002-assistant-foundation 已完成实施**。[任务清单](002-assistant-foundation/tasks.md) 56 项全部勾选完成；验证证据见[验证记录](002-assistant-foundation/validation.md)：默认 `mvnw.cmd verify` 125 项单元/契约测试通过；显式 -Pit 集成集合（SessionProcessingIT、AssistantRoutingIT、TokenRevocationIT、DeviceLockIT、ConversationHistoryIT、SessionLifecycleIT、AssistantLoggingIT）33 项通过（真实 Testcontainers MySQL/Redis）；runtime/test 依赖树单一 Log4j2 提供者；六个 prompt 资源随 JAR 逐字节验收 PASS；注册/登录/模糊会话/续聊/补查/注销手动链在一次性隔离容器上完成，日志无密码/令牌/prompt 正文。未运行项：模拟器相关 IT（UserManagementIT、DeviceBindingConcurrencyIT 及 ManualGuideIT/AutoRepairFlowIT 的模拟器路径）——外部 deviceSimulator 镜像不可用；真实模型小样本——无凭据，未以 mock 结果冒充真实模型证据。003/004/001/005 四个 feature 的业务处理器尚未接入，公共入口对未注册能力返回 CAPABILITY_NOT_AVAILABLE。
+2026-09-08：**002-assistant-foundation 已完成实施**。[历史任务清单](002-assistant-foundation/history/20260915-before-langgraph-tasks.md) 56 项全部勾选完成；验证证据见[验证记录](002-assistant-foundation/validation.md)：默认 `mvnw.cmd verify` 125 项单元/契约测试通过；显式 -Pit 集成集合（SessionProcessingIT、AssistantRoutingIT、TokenRevocationIT、DeviceLockIT、ConversationHistoryIT、SessionLifecycleIT、AssistantLoggingIT）33 项通过（真实 Testcontainers MySQL/Redis）；runtime/test 依赖树单一 Log4j2 提供者；六个 prompt 资源随 JAR 逐字节验收 PASS；注册/登录/模糊会话/续聊/补查/注销手动链在一次性隔离容器上完成，日志无密码/令牌/prompt 正文。未运行项：模拟器相关 IT（UserManagementIT、DeviceBindingConcurrencyIT 及 ManualGuideIT/AutoRepairFlowIT 的模拟器路径）——外部 deviceSimulator 镜像不可用；真实模型小样本——无凭据，未以 mock 结果冒充真实模型证据。003/004/001/005 四个 feature 的业务处理器尚未接入，公共入口对未注册能力返回 CAPABILITY_NOT_AVAILABLE。

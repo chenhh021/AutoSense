@@ -1,290 +1,290 @@
-# Tasks: 公共基础与统一意图路由
+# Tasks: LangGraph4j 多步对话工作流
 
-**Feature**: `002-assistant-foundation` | **Date**: 2026-09-07
-**Input**: [spec.md](spec.md)、[plan.md](plan.md)、[research.md](research.md)、[data-model.md](data-model.md)、[quickstart.md](quickstart.md)
-**Contracts**: [路由与能力接入](contracts/routing-contract.md)、[会话与SSE](contracts/assistant-api.md)、[用户与设备](contracts/user-device-api.md)、[英文日志](contracts/logging-contract.md)、[prompt资源与绑定](contracts/prompt-contract.md)
-**Constitution**: [2.3.0](../../.specify/memory/constitution.md)，包含Entity/DTO、英文日志与AI Service提示词资源规范。
-**Workspace**: 实际Git分支为 `master`，Spec Kit活动feature为002；不要求为执行任务切换分支。
-**Status**: 已按章程2.3.0与最新Phase 0/1设计同步，复用T001–T056共56项，全部待实施；本次仅更新任务及关联文档，未创建prompt文件、修改业务代码或运行应用/测试。
+**Feature**: `002-assistant-foundation` | **Branch**: `dev` | **Date**: 2026-09-15
+**Input**: [spec](spec.md)、[plan](plan.md)、[research](research.md)、[data-model](data-model.md)、[quickstart](quickstart.md)
+**Contracts**: [graph](contracts/graph-contract.md)、[routing](contracts/routing-contract.md)、[API](contracts/assistant-api.md)、[prompt](contracts/prompt-contract.md)、[logging](contracts/logging-contract.md)、[user/device](contracts/user-device-api.md)
+**Constitution**: [v2.3.0](../../.specify/memory/constitution.md)
+**Status**: Implementation in progress: T001-T064 complete (72/83). G4 device capabilities are in progress. Previous 59 completed tasks remain archived in history/20260915-before-langgraph-tasks.md.
 
-**Tests**: spec已有Independent Test、Acceptance Scenarios和SC验收要求，章程要求关键逻辑自动化测试；因此保留必要测试任务。优先补充已有测试，避免访问器/注解等实现镜像测试。用户故事内先定义测试预期、确认现状不满足后实施；必要编译桩不能冒充业务实现，最终必须以行为断言通过为证据。
+## 执行、复用与验证约定
 
-## 格式与执行约定
+- 路径相对于仓库根目录；新增文件为实施目标。同一任务列出的短文件名沿用此前给出的目录。所有任务带连续ID，故事阶段带US标签。
+- 三故事均为P1；Phase按故事组织，G1–G5是技术交付门。先测试定义再实现，编译桩不能冒充真实graph、AiServices或MySQL验收。测试依据spec的Independent Test/Acceptance Scenarios/SC及章程关键行为要求。
+- `[P]`只允许阶段前置满足后同波次不同文件并行；共享文件、容器IT、全量检查与证据写入串行，详见依赖表。
+- 复用用户/设备、DTO、Mapper、专用工厂、Caffeine userId缓存、启动一次共享EmbeddingStore；不恢复统一AiServiceFactory。prompt资源化，英文SLF4J/Log4j2日志保持条件上下文。
+- 五类逻辑数据：conversation→repair_session、chat_message→原表、workflow_execution→新表及step/approval/checkpoint内部表、command_execution→新表、audit_event→repair_action_log。扩展三旧表、新增五表，不建平行conversation/audit_event/workflow_event表。
+- 本feature负责公共图与现有能力迁接，001/003/004/005负责业务范围；G4不得以stub或旧runner冒充真实能力。未交付能力明确不可用并记录所属feature缺口，缺口未解决不得标G4/完整迁移通过。
+- 默认verify与显式-Pit分别记录；模型协议用WireMock+真实代理，MySQL/Redis及deviceSimulator隔离。缺外部前提列未验证，不能静默跳过后勾选。
 
-- 每项包含未完成复选框、连续任务ID、按需的并行/故事标签、描述和文件路径；勾选仅代表该任务的实现和验证已完成。
-- 全部路径相对于仓库根目录。新增类/测试/脚本路径是待创建目标；实际调用者/测试引用随迁移同步更新。
-- `[P]`只表示在阶段前置条件满足后可与指定同波次任务并行编辑不同文件，不表示可以越过依赖或同时修改共享文件。
-- Setup/Foundation/Polish无故事标签，故事阶段严格使用[US1]/[US2]/[US3]；三个故事均为规格原定P1。
-- 依赖未单独标注时仍受阶段门禁约束。同一故事的测试定义完成后再实施对应生产路径；共享文件合并、验证记录写入和最终验收串行。
+## Phase 1: Setup — 版本、配置与基线
 
-## 复用基线与范围
+**目标**：复用已有工程，固定运行约束。
 
-沿用已有Spring Boot工程、用户/设备/会话表、Mapper、注册登录/管理员功能、SN发现绑定、DTO/SSE和设备客户端；不重新初始化工程或重建公共台账。旧001已完成SN任务是复用证据，不复制为这里的已完成勾选。
+- [X] T001 建立本期验证记录，核对归档的59项完成记录及plan删除矩阵；运行现有默认verify记基线，区分已有与新增失败，不改写旧验证。 文件：`specs/002-assistant-foundation/validation-langgraph.md`。
 
-本期重写实际Intent Router/AI Config调用链，以四个系统资源和两个用户包装替换固定内联prompt，并补本地装配校验、JSON数据绑定、基础权限、历史/处理隔离、对象归位和英文日志。003知识、004实时查询、001只读诊断/售后、005确定性控制分别交付业务处理器；本期生产缺失处理器返回明确不可用。任何AI输出、旧confirmRepair、会话租约都不构成设备写授权。
+- [X] T002 仅新增固定langgraph4j-core 1.8.27，保持Java21/Boot3.5.3/LangChain4j1.0.1；编译并核查依赖树，无额外AI集成starter、SDK升级或多SLF4J提供者。 文件：`pom.xml`、`org.bsc.langgraph4j:langgraph4j-core:1.8.27`。
 
-**验证环境**：默认verify覆盖单元/契约，带docker标签的IT需`-Pit`；模型协议可用现有WireMock且必须保留被验收的真实AIService，设备路径按quickstart接外部真实deviceSimulator。复用AbstractIntegrationIT时注意它强制mock/开发身份并需模拟器healthz；真实token场景显式使用真实凭据并覆盖开发开关，真实代理测试使用独立模型协议配置。共享Testcontainers集成测试不擅自启用并行执行，故障注入及旧数据迁移测试使用隔离夹具。
+- [X] T003 配置计划8步、planner30秒、知识/诊断60秒、设备10秒、额外重试2次/1000ms、批准TTL300秒、昂贵阈值30秒、活跃区间300秒及图迭代256；real默认，stub显式隔离真实模型/索引/设备。 文件：`src/main/java/com/chh/autosense/config/GraphProperties.java`、`src/main/resources/application.yaml`、`src/main/resources/application-graph-stub.yaml`。
 
-## Phase 1: Setup — 复用工程并接入日志依赖
+## Phase 2: Foundational — 共用状态及图边界
 
-**目标**：在现有基线完成必要依赖与日志配置，不创建第二套工程。
+**目标**：完成各故事共用类型和最小图实验；依赖Phase1。此阶段无应用持久恢复。
 
-- [X] T001 调整 `pom.xml`：保留 Java21/Boot3.5.3/LangChain4j1.0.1 基线；合并 Lombok 为单一 optional=true 的1.18.36依赖，按日志契约直接声明 spring-boot-starter 并排除 starter-logging、加入 starter-log4j2；按实际传递路径消除 Logback/反向桥接，不新增AI starter。沿用Maven主资源打包，仅在实际配置会过滤或改写prompt字节时修正资源配置，不另加模板引擎或资源插件。
+- [X] T004 定义九个context及messages十个顶层键；context优先record且可嵌套，防御复制、整体替换、显式清空，禁止Bean/锁/ChatMemory/流对象，PlanContext游标唯一权威。 文件：`src/main/java/com/chh/autosense/graph/state/AssistantState.java`。
 
-- [X] T002 新增 `src/main/resources/log4j2-spring.xml` 并更新 `src/main/resources/application.yaml`：默认Console、root/项目INFO、英文固定字段及白名单MDC，支持 LOGGING_CONFIG/日志级别/LOGGING_PATTERN_CONSOLE 覆盖；XML读取Boot导出的CONSOLE_LOG_PATTERN，文件输出仅由配置显式启用并附滚动/保留策略，限制SDK/HTTP wire/body原文日志，不能随业务日志级别开启正文输出。（依赖 T001）
+- [X] T005 [P] 定义稳定stepId、正式计划、条件/前序引用、步骤结果及状态；涵盖SKIPPED/NOT_EXECUTED/UNKNOWN，AI候选不能成为可信授权。 文件：`src/main/java/com/chh/autosense/graph/state/ExecutionPlan.java`、`src/main/java/com/chh/autosense/domain/enums/WorkflowStatus.java`、`src/main/java/com/chh/autosense/domain/enums/PlanStepType.java`。
 
-**Checkpoint**：日志依赖/配置已具备；应用业务实现和验收不因pom中存在依赖而自动完成。
+- [X] T006 [P] 定义公开OutputContext投影、eventId/sequence/step/status/progress及命令确定性；内部审计与公开事件分开，不暴露state/prompt/凭证。 文件：`src/main/java/com/chh/autosense/domain/message/WorkflowEvent.java`、`src/main/java/com/chh/autosense/domain/vo/WorkflowView.java`。
 
-## Phase 2: Foundational — 共享类型、短事务与日志基础
+- [X] T007 定义最小类型化动作及提交边界，区分规划/查询/诊断/控制；依赖注入stub/真实适配，不复用CapabilityDispatcher/text sink或包装SessionOrchestrator。 文件：`src/main/java/com/chh/autosense/graph/node/WorkflowStepActions.java`。
 
-**前置**：Phase 1完成。本阶段完成前不开始用户故事生产实现。
+- [X] T008 验证state缺省、局部更新、整体替换、游标镜像及messages按ID限窗；不以访问器或注解存在性代替行为断言。 文件：`src/test/java/com/chh/autosense/graph/StateContractTest.java`。
 
-- [X] T003 [P] 扩展 `src/main/java/com/chh/autosense/exception/ErrorCode.java`、`src/main/java/com/chh/autosense/domain/enums/SessionStatus.java`、`src/main/java/com/chh/autosense/domain/enums/ConclusionType.java` 与 `src/main/java/com/chh/autosense/core/session/statemachine/SessionStateMachine.java`：增加 SESSION_BUSY/AI_SERVICE_UNAVAILABLE/CAPABILITY_NOT_AVAILABLE/REQUEST_TIMEOUT/CONTEXT_EXPIRED、DISPATCHING/FAILED_REQUEST/ERROR，明确公共路由/等待/失败迁移及GUIDED_MANUAL终态；保留历史枚举值。
+- [X] T009 建立图运行依赖装配入口，完整MainGraph Bean在T023汇合；MemorySaver仅隔离测试，应用saver于G2接入；内联子图、单次compile、releaseThread(false)，不新增源码根。 文件：`src/main/java/com/chh/autosense/config/GraphConfiguration.java`。
 
-- [X] T004 [P] 新增 `src/main/java/com/chh/autosense/config/AssistantProperties.java`，调整 `src/main/java/com/chh/autosense/config/LlmProperties.java`、`src/main/java/com/chh/autosense/config/ChatMemoryProperties.java` 和 `src/main/resources/application.yaml`：外部化模型30秒、maxRetries=0、处理120秒、会话租约30秒/续租10秒、上下文1800秒；校验real/mock、real连接/密钥/模型、有限temperature、正时限/相互关系及历史窗口固定20，启动校验不访问远程服务。
+- [X] T010 以最小测试图核对固定core内联子图、SubGraphNode.formatId、stream、updateState返回config的resume语义；共享threadId/state/saver，不依赖尚未实现的完整MainGraph。 文件：`src/test/java/com/chh/autosense/graph/GraphAssemblyTest.java`。
 
-- [X] T005 [P] 调整 `src/main/java/com/chh/autosense/domain/entity/User.java`、`src/main/java/com/chh/autosense/domain/entity/Device.java`、`src/main/java/com/chh/autosense/domain/entity/RepairSession.java`、`src/main/java/com/chh/autosense/domain/entity/ProblemReport.java`、`src/main/java/com/chh/autosense/domain/entity/ChatMessage.java`、`src/main/java/com/chh/autosense/domain/entity/RepairActionLog.java`：@Data改@Getter/@Setter并保留public无参构造和全部映射；RepairSession增加可空processingMessageId/processingDeadlineAt，不生成多余equals/hashCode/toString或全参构造。
+## Phase 3: User Story 1 — 同一入口使用四类能力 (P1 / G1)
 
-- [X] T006 新增 `scripts/migration/20260907-assistant-processing.sql` 并同步 `src/main/resources/schema.sql`：仅在repair_session加两列nullable处理字段；保留旧主键/数据，说明前向执行与已应用检查。核对 `src/main/resources/data.sql` 与 `src/main/resources/application.yaml` 的初始化，确保已有库不被schema/seed清空或覆盖，迁移不映射旧DEVICE_ACTION。（依赖 T005、T004）
+**目标**：stub验证四类步骤、多步条件及独立确认。依赖Phase2。
+**独立验收**：离线四类问题、查询→条件控制及模糊问题；检查实际graph顺序/中断/跳过/失败停止，外部调用为零。
 
-- [X] T007 [P] 新增 `src/main/java/com/chh/autosense/utils/LogContextUtils.java` 与 `src/main/java/com/chh/autosense/utils/LogSanitizer.java`：复制白名单MDC快照、作用域安装并finally恢复旧值；只允许必要ID/枚举/计数，清理控制字符和长度，异常诊断剔除message/cause/suppressed原文且不把原异常挂回输出。
+### 先定义测试
 
-- [X] T008 新增 `src/main/java/com/chh/autosense/common/RequestLogFilter.java` 并接入 `src/main/java/com/chh/autosense/core/security/SecurityConfig.java`，更新 `src/main/java/com/chh/autosense/common/GlobalExceptionHandler.java`：认证前生成服务端requestId、请求attribute跨dispatch复用、避免重复注册；参数错误WARN只记录字段/规则，未预期异常最终边界一次脱敏ERROR，用户错误体保持兼容。（依赖 T007）
+- [X] T011 [P] [US1] 先定义PLAN/CLARIFY/OUT_OF_SCOPE、1..8步、未知类型、重复ID、前向引用/循环、条件深度、缺知识标记及注入授权字段的拒绝/澄清测试。 文件：`src/test/java/com/chh/autosense/graph/PlanValidationTest.java`。
 
-- [X] T009 新增 `src/main/java/com/chh/autosense/core/session/SessionProcessingService.java` 并扩展 `src/main/java/com/chh/autosense/mapper/RepairSessionMapper.java`、`src/main/java/com/chh/autosense/mapper/ProblemReportMapper.java`、`src/main/java/com/chh/autosense/mapper/ChatMessageMapper.java`、`src/main/java/com/chh/autosense/core/session/SessionTransitionLog.java`：以会话行锁短事务提供接纳/正常回调/等待或终态收尾/独立到期结清；验证归属、messageId及数据库截止时间，同事务写消息/状态/追溯并清指针，成功日志在提交后产生；忙请求不保存输入/不改新轮；仅confirmRepair的兼容请求也保存一次确定性USER意向取得messageId，但不是授权。旧回调不写数据，round在同事务确定，模型/设备调用不占事务。（依赖 T003、T006、T007）
+- [X] T012 [P] [US1] 先定义四简单意图、条件true/false、缺引用、连续Query、查询→诊断→控制→独立复检及明确错误/拒绝后剩余未执行测试。 文件：`src/test/java/com/chh/autosense/graph/MainGraphStubTest.java`。
 
-- [X] T010 新增 `src/main/java/com/chh/autosense/core/session/memory/ConversationHistoryService.java` 与 `src/main/java/com/chh/autosense/core/session/memory/ConversationHistorySnapshot.java`，扩展 `src/main/java/com/chh/autosense/mapper/ChatMessageMapper.java`：按本人session和当前已保存USER messageId选取之前最近20条USER/ASSISTANT并按id升序；record及集合形成不可变快照，当前文本另传一次，不从旧Redis缓存读模型历史。（依赖 T009）
+- [X] T013 [P] [US1] 先定义NodeOutput→OutputContext→WorkflowEvent、重复snapshot去重、checkpoint完成才关闭等待流、步骤结果不关流及内部state不泄露测试。 文件：`src/test/java/com/chh/autosense/graph/GraphStreamContractTest.java`。
 
-- [X] T011 新增 `src/main/java/com/chh/autosense/core/session/SessionLeaseService.java`：以autosense:lock:session:{sessionId}执行SET NX+TTL，owner包含当前messageId和随机值，续期/释放原子核对owner；暴露失租约结果并恢复日志MDC，不在日志输出owner。租约失效不授权重放DB截止内请求，时间配置来自AssistantProperties。（依赖 T004、T007）
+### 实现与G1验收
 
-- [X] T012 新增 `src/test/java/com/chh/autosense/integration/SessionProcessingIT.java` 并复用 `src/test/java/com/chh/autosense/integration/AbstractIntegrationIT.java` 的真实MySQL/Redis：验证两列迁移保留旧记录、六实体映射/主键回填/逻辑删除、短事务并发接纳、正常与已到期条件分开、原子收尾回滚、20条历史边界及owner续租/释放；不实现设备模拟器或执行设备动作。（依赖 T009、T010、T011）
+- [X] T014 [US1] 定义结构化候选及四类型映射，保留敏感额外字段校验入口；模型不得填写状态、超时、重试或批准。 文件：`src/main/java/com/chh/autosense/ai/model/ExecutionPlanCandidate.java`、`src/main/java/com/chh/autosense/ai/model/enums/PlanOutcome.java`。
 
-- [X] T013 新增 `src/test/java/com/chh/autosense/support/LogCaptureSupport.java` 和 `src/test/java/com/chh/autosense/unit/LoggingInfrastructureTest.java`：临时Log4j Core appender安装后必须恢复，验证SLF4J实际提供者、Console配置覆盖、白名单MDC安装/恢复、敏感异常链/控制字符清理；不以检查注解或pom文本替代运行绑定断言。（依赖 T008）
+- [X] T015 [US1] 实现确定性stub语料、simulated结果、一次超时/明确失败/拒绝/昂贵步骤与稳定operationKey模拟去重；注入只来自fixture/profile，不接受自然语言启用，real缺能力不静默stub。 文件：`src/main/java/com/chh/autosense/graph/node/StubWorkflowActions.java`。
 
-**Checkpoint**：共享类型/配置可编译，T012/T013实际验证通过；数据库处理原语、只读历史、owner租约与日志基础可供故事复用。业务路由及账号缺口仍由后续故事接入。
+- [X] T016 [US1] 实现候选校验及正式计划hash，CLARIFY等待、OUT_OF_SCOPE正常结束；静态校验不读设备，发布后不增删步骤，未决参数只补运行时绑定。 文件：`src/main/java/com/chh/autosense/graph/node/PlanValidator.java`。
 
-## Phase 3: User Story 1 — 在同一个对话入口使用四类能力（P1，MVP演示范围）
+- [X] T017 [US1] 实现确定性路由、白名单比较/AND/OR及前序公开结果引用；false跳过，缺失/类型错失败，清临时上下文，不调用LLM再选路。 文件：`src/main/java/com/chh/autosense/graph/node/PlanRouter.java`。
 
-**目标**：真实AIService完成四路分类与安全分发，保留统一入口；不要求四个领域处理器实现。
+- [X] T018 [US1] 实现成功/跳过推进、失败整计划停止及确定性汇总，通过T007提交边界输出；失败不标完成，不回滚已发生效果。 文件：`src/main/java/com/chh/autosense/graph/node/CompleteStep.java`、`src/main/java/com/chh/autosense/graph/node/Reject.java`、`src/main/java/com/chh/autosense/graph/node/ResponseAggregator.java`。
 
-**Independent Test**：通过已认证公共入口提交四种明确问题、型号/售后、模糊/复合/范围外及模型非法/失败样例；只向目标测试接收器投递一次、身份/轮次准确、无设备写。模糊/复合/缺失接收器零设备读写；实际四代理从六资源加载系统/用户模板并正确绑定JSON资料；本地配置失败零模型请求，字面变量标记不再替换。代理与流式回调由模型协议测试验证。
+- [X] T019 [P] [US1] 构造ResolveTarget→ValidateQuery→PrepareApproval→AwaitApproval→Revalidate→ReadDevice→SaveQueryResult未编译子图；stub亦逐步确认，本地候选解析不外部探测。 文件：`src/main/java/com/chh/autosense/graph/subgraph/QuerySubGraphFactory.java`。
 
-### 先定义验收测试
+- [X] T020 [P] [US1] 构造PrepareEvidence→RetrieveDiagnosisKnowledge→AnalyzeDiagnosis→SaveDiagnosisResult子图；消费前序证据，不内嵌设备查询/控制/复检。 文件：`src/main/java/com/chh/autosense/graph/subgraph/DiagnosisSubGraphFactory.java`。
 
-- [X] T014 [P] [US1] 新增 `src/test/java/com/chh/autosense/contract/AssistantRoutingContractTest.java`：先定义四类SINGLE、型号知识、售后子模式、普通澄清、复合/条件/多设备写、OUT_OF_SCOPE、未知枚举/矛盾结构及服务故障的分类/错误断言，并验证重复处理器注册启动失败和缺失处理器拒绝；校验候选字段不能产生身份或确认授权；测试分类语义而非提示词全文。
+- [X] T021 [P] [US1] 构造命令解析/权限风险/独立批准/重查/保存意图/执行/保存结果子图；无隐式读后复检，保留commandId/operationKey，不能绕过确认。 文件：`src/main/java/com/chh/autosense/graph/subgraph/ControlSubGraphFactory.java`。
 
-- [X] T015 [P] [US1] 新增 `src/test/java/com/chh/autosense/unit/AiServiceAssemblyTest.java`，扩展 `src/test/java/com/chh/autosense/unit/LlmConfigurationTest.java`、`src/test/java/com/chh/autosense/unit/LangChain4jDirectAnswererTest.java`，复用 `src/test/java/com/chh/autosense/support/LogCaptureSupport.java`：WireMock仅模拟模型协议，真实工厂/四代理捕获请求验证六资源生效、JSON数据与角色、三个record解析、配置切换及TokenStream成功/失败/同步完成；按下表覆盖资源/变量/编码失败、零模型请求、字面花括号与脱敏异常。使用隔离测试接口/classloader及内存字节夹具，不以同名测试资源遮盖主资源，不mock掉代理；默认离线测试也覆盖真实工厂，不因应用mock模式跳过。
+- [X] T022 [US1] 实现inputRequestId、追问、返回节点及中断；正式计划前可回Planner，发布后仅补runtimeInputs，澄清不是批准/新增目标。 文件：`src/main/java/com/chh/autosense/graph/node/PrepareInput.java`、`src/main/java/com/chh/autosense/graph/node/AwaitInput.java`。
 
-- [X] T016 [P] [US1] 新增 `src/test/java/com/chh/autosense/support/RecordingCapabilityConfiguration.java` 与 `src/test/java/com/chh/autosense/integration/AssistantRoutingIT.java`：先定义通过实际鉴权、公共入口、编排和SSE进入四个仅src/test注册的接收器的验收；含同会话终态后改问另一能力，每次仅目标接收一次且user/session/message/round与20条历史边界准确，模糊/复合/缺失处理器零设备读写，其余接收器场景零设备写；运行时prompt/数据编码故障明确失败而非歧义或成功，SSE不返回内部prompt及渲染包装。外部夹具操作不计业务调用，真实代理加载证据复用T015。
+- [X] T023 [US1] 接入stub并汇合规定主图、三子图及失败/澄清边；中断定位内部Await节点，不能对逻辑容器interruptAfter；完成T009的MainGraph Bean装配。 文件：`src/main/java/com/chh/autosense/graph/node/IntentPlanner.java`、`src/main/java/com/chh/autosense/graph/node/KnowledgeConsult.java`、`src/main/java/com/chh/autosense/graph/MainGraphFactory.java`。
 
-### Prompt专项验收归属（复用T015，结果由T029记录）
+- [X] T024 [US1] 实现统一超时分类、有界重试、单步绝对截止/callId成功子结果复用及活跃区间截止；stub证明全部尝试共用预算，明确错误/拒绝不重试，未知写无安全保证即停止。 文件：`src/main/java/com/chh/autosense/graph/node/StepAttemptExecutor.java`。
 
-| 验收点 | 必须证明 |
-| --- | --- |
-| 四代理 / 六资源 | 真实请求的system对应各自资源规则；用户资料由共享conversation-input或diagnosis-input绑定。当前唯一测试标记在text区一次，历史/诊断/伪system指令不进入system；不锁定整篇自然语言提示词作为黄金字符串 |
-| 启动预校验 | 缺失/不可读/空白/非法UTF-8/BOM/非UTF-8默认字符集、错误路径/内联value/缺少注解、变量错名/重复/隐式变量/空格写法或@V不匹配均在发布代理前失败，模型请求为零；失败不依赖AiServices.build验证 |
-| 参数与编码 | 非null的text JSON字符串、history数组（空→[]）、symptom字符串或JSON字面量null、diagnostics对象（null Map→{}）；嵌套字符串键/值含中文、换行、引号、反斜杠及{{text}}/{{history}}/{{current_date}}，解码值保持原样且不再次替换 |
-| 编码边界 | 只对普通JSON数据的字符串键/值转义花括号，结构括号不变；拒绝RawValue/自定义writeRaw等旁路，非法输入失败不回退原文；全局HTTP ObjectMapper与数据库原文不受影响 |
-| SDK行为兼容 | 保留record自动输出格式后缀/response format；TokenStream独立验收。运行时资源/渲染/编码失败不转mock、不按模型非法结构澄清，原始异常正文不输出 |
-| 日志与历史 | T015用LogCaptureSupport核对装配/同步/流式失败无prompt或数据原文；T016/T042验证内部模板及包装不落SSE/历史，本人输入和合法可见回答照常保存；T044覆盖公共异步日志 |
-| 制品检查 | T054在verify后检查Boot JAR六个prompt条目、非空/UTF-8/无BOM及源文件字节一致；与真实代理测试分别提供证据 |
+- [X] T025 [US1] 执行T008/T010–T013实际graph场景及编译检查，记录G1；输出均simulated，MemorySaver通过不代表持久恢复或真实设备安全。 文件：`specs/002-assistant-foundation/validation-langgraph.md`。
 
-### 实现与整合
+**Checkpoint / MVP**：Phase1–3仅为离线图MVP；真实HTTP持久入口在US3的G2，不能提前宣称替换前端对话。
 
-- [X] T017 [US1] 新增 `src/main/java/com/chh/autosense/ai/model/RoutingDecision.java`、`src/main/java/com/chh/autosense/ai/model/enums/RoutingOutcome.java`、`src/main/java/com/chh/autosense/ai/model/enums/CapabilityIntent.java`、`src/main/java/com/chh/autosense/ai/model/enums/DiagnosisMode.java` 与 `src/main/java/com/chh/autosense/domain/enums/AssistantCapability.java`：按路由契约定义record/枚举、nullable组合，AI分类和业务能力分离，不增加userId/confirmed/verifiedDeviceId等可信输出字段。（依赖 T014）
+## Phase 4: User Story 2 — 继续使用账号与本人设备 (P1)
 
-- [X] T018 [US1] 将 `src/main/java/com/chh/autosense/core/analysis/ProblemAnalysis.java`、`src/main/java/com/chh/autosense/core/analysis/DiagnosisConclusion.java` 迁至 `src/main/java/com/chh/autosense/ai/model/ProblemAnalysis.java`、`src/main/java/com/chh/autosense/ai/model/DiagnosisConclusion.java` 并更新引用：保留record/字段/语义，编译修正ProblemAnalyzer/DiagnosisReasoner及现有mock适配，领域规则不重写。（依赖 T015）
+**目标**：复用身份、账号与SN绑定，不重建公共功能。依赖Phase2，可与US1不同文件工作并行。
+**独立验收**：真实token注册→登录→me→注销、禁用/启用、管理员限制及SN唯一绑定；不依赖真实图能力。
 
-- [X] T019 [US1] 新增 `src/main/java/com/chh/autosense/core/routing/CapabilityRequest.java`、`src/main/java/com/chh/autosense/core/routing/CapabilityResult.java`、`src/main/java/com/chh/autosense/core/routing/AssistantCapabilityHandler.java`：不可变请求包含服务端AuthUser/session/report/round/message、内容/兼容意向/历史边界/截止及已校验分类；定义异步完成/等待/失败与公共文本sink，状态/持久化归公共入口，控制意向不是授权。（依赖 T017）
+- [X] T026 [P] [US2] 复核并补充真实身份/令牌索引、禁用再启用旧token失效、管理员本人资源限制测试；已覆盖内容复用。 文件：`src/test/java/com/chh/autosense/contract/UserApiContractTest.java`、`src/test/java/com/chh/autosense/integration/TokenRevocationIT.java`。
 
-- [X] T020 [US1] 在受 Spring 管理的 `src/main/java/com/chh/autosense/ai/factory/IntentRouterServiceFactory.java`、`src/main/java/com/chh/autosense/ai/factory/EnhancedAnswerFactory.java`、`src/main/java/com/chh/autosense/ai/factory/DiagnosisReasonerServiceFactory.java`、`src/main/java/com/chh/autosense/ai/factory/DirectAnswerServiceFactory.java` 中分别创建服务，复用 `src/main/java/com/chh/autosense/utils/AiServiceValidator.java` 校验资源；维护 `src/main/resources/prompt/intent-router.txt`、`src/main/resources/prompt/problem-analysis.txt`、`src/main/resources/prompt/diagnosis-reasoner.txt`、`src/main/resources/prompt/direct-answer.txt`、`src/main/resources/prompt/conversation-input.txt`、`src/main/resources/prompt/diagnosis-input.txt`：按prompt契约迁移固定规则与包装，UTF-8无BOM；四个服务接口独立位于 ai 包，在方法上分别声明@SystemMessage/@UserMessage的fromResource（/prompt/对应文件）及显式@V，创建三个同步record代理与一个TokenStream代理。各专用工厂发布前经 AiServiceValidator 从实际方法注解以接口Class.getResourceAsStream检查六资源、默认UTF-8字符集、系统零变量、用户精确变量各一次及非null样例渲染；失败安全终止装配、零远程调用、英文日志不含正文或原始cause。不依赖build自动校验，不挂ChatMemory/@MemoryId/tools/toolProvider，不全量扫描BaseTool。（依赖 T017、T018、T015）
+- [X] T027 [P] [US2] 复核SN全局唯一、未知型号可绑定、失败无新增及online非权威状态测试；管理API不成为LLM绕过查询确认的工具。 文件：`src/test/java/com/chh/autosense/contract/DeviceApiContractTest.java`、`src/test/java/com/chh/autosense/integration/DeviceBindingConcurrencyIT.java`。
 
-- [X] T021 [US1] 重写 `src/main/java/com/chh/autosense/config/LangChain4jConfig.java` 为外部化模型Bean及工厂/适配接线：同步/流式模型采用明确配置与maxRetries、关闭request/response logging、无效mode启动失败；接入T020的资源预校验，real配置失败不转mock。移除四条直接chat/手工JSON解析旁路、旧内联文本块和两个未使用的注解接口；固定系统规则/用户包装不能留在Java常量、注解value或拼接代码中；保留同一工厂及SDK自动结构化输出格式，不新增prompt路径环境变量或远程管理接口。（依赖 T020、T004）
+- [X] T028 [US2] 核对并仅修复T026暴露的兼容缺口；沿用真实身份服务，Controller不直访mapper，不新建鉴权体系。 文件：`src/main/java/com/chh/autosense/controller/UserController.java`、`src/main/java/com/chh/autosense/service/user/UserService.java`、`src/main/java/com/chh/autosense/core/security/`。
 
-- [X] T022 [US1] 新增纯数据工具 `src/main/java/com/chh/autosense/utils/PromptInputEncoder.java`，调整 `src/main/java/com/chh/autosense/core/routing/IntentClassifier.java`、`src/main/java/com/chh/autosense/core/routing/DirectAnswerer.java`、`src/main/java/com/chh/autosense/core/analysis/ProblemAnalyzer.java`、`src/main/java/com/chh/autosense/core/analysis/DiagnosisReasoner.java` 及 `src/main/java/com/chh/autosense/config/LangChain4jConfig.java` 的适配调用：复用独立Jackson ObjectWriter/CharacterEscapes，只转义普通JSON字符串键/值的花括号为\u007b/\u007d，保留结构并拒绝RawValue/writeRaw等旁路，不改共享HTTP序列化配置或持久原文，编码后直接绑定。四代理共用同轮只读历史；question仅映射text JSON字符串，history空→[]、symptom缺失→JSON字面量null、diagnostics的null Map→{}，所有@V实参非Java null，当前输入只一次。实际调用对应代理，TokenStream通过onPartialResponse/onCompleteResponse/onError/start适配CompletionStage，逐回调安装MDC并记录英文汇总；编码失败不得退回原文拼接。（依赖 T021、T010）
+- [X] T029 [US2] 核对并仅修复T027暴露的兼容缺口；保留URL/DTO/错误及稳定数据，图不得调用管理接口绕过确认。 文件：`src/main/java/com/chh/autosense/controller/DeviceController.java`、`src/main/java/com/chh/autosense/service/device/DeviceRegistryService.java`。
 
-- [X] T023 [US1] 新增 `src/main/java/com/chh/autosense/core/routing/RoutingDecisionValidator.java`：显式校验outcome/intent/diagnosisMode组合并映射业务枚举；模型输出类型/结构/空结果转固定澄清，传输/认证/超时转AI_SERVICE_UNAVAILABLE。与T022适配边界区分运行时prompt读取/渲染和输入编码故障，按技术失败终结并返回统一FAILED_REQUEST/error，不能吞为模型歧义或模拟成功；型号与售后按契约分流，目标线索不查设备/不授权，仅记录英文枚举/原因码。（依赖 T022、T014）
+- [X] T030 [US2] 运行账号/设备契约及相关IT，记录原有记录仍可用；真实token或模拟器缺失列未验证，不以开发身份替代撤销验收。 文件：`specs/002-assistant-foundation/validation-langgraph.md`。
 
-- [X] T024 [US1] 新增 `src/main/java/com/chh/autosense/core/routing/CapabilityDispatcher.java`：按AssistantCapability显式注册，重复注册启动失败，缺失或不可续办返回CAPABILITY_NOT_AVAILABLE；只向匹配处理器传递已验证上下文，记录英文分发结果，不按模型字符串反射、不回退DEVICE_ACTION或旧repair runner。（依赖 T019、T023）
+## Phase 5: User Story 3 — 会话、公共响应及可靠恢复 (P1 / G2–G4)
 
-- [X] T025 [US1] 调整 `src/main/java/com/chh/autosense/core/routing/MockIntentClassifier.java`、`src/main/java/com/chh/autosense/core/routing/MockDirectAnswerer.java`、`src/main/java/com/chh/autosense/core/analysis/MockProblemAnalyzer.java`、`src/main/java/com/chh/autosense/core/analysis/MockDiagnosisReasoner.java`：仅在明确mock模式适配新结构与历史输入；四类意图/歧义分开，不将mock模式绑定测试业务处理器，输出保持明确测试用途。（依赖 T022、T024）
+**目标**：五类数据、HTTP/SSE、确认、幂等、显式恢复、记忆及现有能力迁接。依赖US1；US2切换前通过。
+**独立验收**：stub+真实MySQL经HTTP创建/批准/续接，真正重启JVM后本人显式恢复；消息/步骤/命令/审计关联正确。G3真实代理、G4隔离设备分别验证。
 
-- [X] T026 [US1] 重构 `src/main/java/com/chh/autosense/core/session/SessionOrchestrator.java` 的createSession/postMessage/route：接纳一次USER消息、固定历史，完成路由校验和分发；澄清/复合保存等待答复，范围外保存确定性说明，单意图仅交已注册处理器；保留旧领域代码供其他feature复用但断开公共默认设备写/旧confirmRepair直达runner，旧DEVICE_ACTION历史不重解释。（依赖 T025、T009、T010、T016）
+### 先定义持久化与恢复测试
 
-- [X] T027 [US1] 在 `src/main/java/com/chh/autosense/core/session/SessionOrchestrator.java` 与 `src/main/java/com/chh/autosense/controller/SessionController.java` 接入完整异步处理生命周期：applicationTaskExecutor提交、AI/处理器回调显式携带MDC；30秒owner租约按10秒续期至持久化结束，固定总截止主动调用到期事务并关流；失租约立即停止后续token和业务结果回调，仅同一消息的到期事务可结清；提交拒绝、重复/晚到回调不改新轮、不虚报成功，HTTP返回emitter不记业务完成。（依赖 T026、T011）
+- [X] T031 [P] [US3] 先定义旧库升级/新库初始化、三旧表扩展/五新表、旧ID/正文/审计保留及nullable关联/唯一键测试；不建重复workflow_event，不回填可恢复旧命令。 文件：`src/test/java/com/chh/autosense/integration/WorkflowPersistenceMigrationIT.java`。
 
-- [X] T028 [US1] 从 `src/main/java/com/chh/autosense/config/LangChain4jConfig.java` 和 `src/main/java/com/chh/autosense/core/session/memory/ChatMemoryFactory.java` 的真实AI装配链退出 `src/main/java/com/chh/autosense/core/session/memory/RedisChatMemoryStore.java` 的自动可写记忆；保留必要历史兼容，不新增平行可写记忆，不把内部分类/分析/提示写入chat_message，旧Redis键仅随TTL失效。（依赖 T027、T022）
+- [X] T032 [P] [US3] 先定义MySQL saver指定/最新get、历史list、put/release、版本化JSON、缺失/未知版本拒绝及昂贵结果先提交的恢复补齐测试。 文件：`src/test/java/com/chh/autosense/integration/WorkflowCheckpointIT.java`。
 
-- [X] T029 [US1] 执行T014/T015实际代理与路由测试及 `src/test/java/com/chh/autosense/integration/AssistantRoutingIT.java`，在 `specs/002-assistant-foundation/validation.md` 记录命令/模式/报告、四路接收、缺失处理器生产装配、零设备写、最近20条+当前一次及错误闭流证据；补齐六资源实际加载/JSON绑定/角色、字面花括号、配置失败零模型请求与安全日志的结果。只记录资源名、断言结果和脱敏关联，不粘贴prompt/输入正文；修正冲突的既有公共测试，不恢复旧写路径迁就断言。（依赖 T028、T014、T015、T016）
+- [X] T033 [P] [US3] 先定义逐Query/Control确认、过期/参数变化失效、每次权限重查、重复/并发决定、重试预算不重置及拒绝/明确失败停整计划测试。 文件：`src/test/java/com/chh/autosense/integration/WorkflowApprovalIT.java`。
 
-**Checkpoint**：US1可以独立演示分类、澄清、范围说明和能力接收；生产未接入能力仍报告不可用。该演示不是四项领域业务完成，也不替代US2/US3的全部P1验收。
+- [X] T034 [P] [US3] 先定义command唯一身份、写前落库、结果/审计原子提交、事件/消息去重、迟到fence拒绝及UNKNOWN不重发；查询不建命令，审计SUCCESS不等于设备成功。 文件：`src/test/java/com/chh/autosense/integration/CommandExecutionIT.java`、`src/test/java/com/chh/autosense/integration/WorkflowAuditIT.java`。
 
-## Phase 4: User Story 2 — 继续使用已有账号与本人设备（P1）
+- [X] T035 [P] [US3] 先定义HTTP契约、本人隔离、真实进程恢复、消息边界、断线补查及旧会话workflow=null；新入口替身不得再依赖旧编排。 文件：`src/test/java/com/chh/autosense/integration/WorkflowRecoveryIT.java`、`src/test/java/com/chh/autosense/contract/WorkflowApiContractTest.java`、`src/test/java/com/chh/autosense/integration/ConversationHistoryIT.java`。
 
-**目标**：沿用账号、管理员和SN绑定行为，修正撤销/归属/并发缺口，保持数据与接口兼容。
+### G2：数据库、事务及恢复
 
-**Independent Test**：已有账号注册/登录/me/注销与管理员功能回归，禁用再启用和并发签发不复活旧token；普通用户/越权请求全部拒绝。外部设备按SN绑定、全局唯一、未知型号可绑定且稳定数据保留；错误/冲突零新增、owner原子检查正确，密码不进入响应、日志无凭据，登录token仅按契约返回。
+- [X] T036 [US3] 创建前向迁移并同步新库DDL/只读启动schema校验，实现data-model全部字段/索引/长度；旧关联nullable，新事件适用字段必填，不改旧迁移或靠CREATE IF NOT EXISTS升级旧表。 文件：`scripts/migration/20260915-langgraph-workflow.sql`、`src/main/resources/schema.sql`、`src/main/java/com/chh/autosense/config/SessionSchemaValidator.java`。
 
-### 先定义验收测试
+- [X] T037 [US3] 扩展三旧实体、新建workflow/step/approval/checkpoint/command实体；Getter/Setter与必要构造，保留旧映射及ID，command与audit分开。 文件：`src/main/java/com/chh/autosense/domain/entity/RepairSession.java`、`ChatMessage.java`、`RepairActionLog.java`、`WorkflowExecution.java`、`WorkflowStep.java`、`WorkflowApproval.java`、`WorkflowCheckpoint.java`、`CommandExecution.java`。
 
-- [X] T030 [P] [US2] 复用并补充 `src/test/java/com/chh/autosense/contract/UserApiContractTest.java`、`src/test/java/com/chh/autosense/contract/DeviceApiContractTest.java`：锁定注册/登录/me/注销/管理员分页与状态、SN绑定/列表的原URL/状态码/JSON、record校验/null语义；只补缺失断言，覆盖普通用户/他人资源拒绝；密码不出现在响应，token仅按LoginResponse契约返回且不进入日志，不重新创建用户设备测试体系。增加注册密码的ASCII长度、多字节及UTF-8 72/73字节边界测试；72字节且满足其他条件时可注册，73字节返回400/BAD_REQUEST且新增用户为零，错误体与日志不包含密码。
+- [X] T038 [US3] 实现新实体mapper及旧审计/消息mapper的行锁、version/fence条件更新、幂等键及事件序列查询；MyBatis-Flex参数化访问，无第二套DAO。 文件：`src/main/java/com/chh/autosense/mapper/WorkflowExecutionMapper.java`、`WorkflowStepMapper.java`、`WorkflowApprovalMapper.java`、`WorkflowCheckpointMapper.java`、`CommandExecutionMapper.java`、`RepairActionLogMapper.java`、`ChatMessageMapper.java`。
 
-- [X] T031 [P] [US2] 新增 `src/test/java/com/chh/autosense/integration/TokenRevocationIT.java`：真实MySQL/Redis验证token与索引共同有效、统一TTL、孤立token、注销、禁用再启用不复活、并发签发/状态变更、关键Redis失败回滚及启用失败保持禁用；故障注入隔离于其他测试，不用dev token证明真实撤销。
+- [X] T039 [US3] 实现追加审计、稳定event_key、原子sequence及消息output_key去重；params为版本化安全元数据，短result保留、细码写result_code、正文只存chat_message，内部事件不直接发SSE。 文件：`src/main/java/com/chh/autosense/core/session/WorkflowAuditService.java`。
 
-- [X] T032 [P] [US2] 扩展 `src/test/java/com/chh/autosense/integration/DeviceBindingConcurrencyIT.java` 并新增 `src/test/java/com/chh/autosense/integration/DeviceLockIT.java`：真实外部设备服务验证SN全局唯一/未知型号/旧绑定保留，真实Redis验证错误owner续租/释放失败与到期竞争；沿用 `src/test/java/com/chh/autosense/unit/DeviceLockServiceTest.java` 的适用回归，不以Mockito调用次数代替原子性证据。
+- [X] T040 [US3] 实现接纳/终止/结果短事务：锁会话行保证单活跃计划，关联消息/report/workflow，原子提交步骤/工作流/消息/审计，条件清活动指针；事务不跨网络。 文件：`src/main/java/com/chh/autosense/core/session/WorkflowPersistenceService.java`。
 
-### 实现与整合
+- [X] T041 [US3] 实现每Control步骤一个command/operationKey、批准作用域、PREPARED/IN_FLIGHT/RETRYING/结果状态、attempt/fence及出站claim；意图/审计先提交，结果同步步骤，未知写不按未发送重做，取消不抹效果。 文件：`src/main/java/com/chh/autosense/core/session/CommandExecutionService.java`。
 
-- [X] T033 [US2] 将 `src/main/java/com/chh/autosense/domain/dto/UserView.java`、`src/main/java/com/chh/autosense/domain/dto/AdminUserPageView.java`、`src/main/java/com/chh/autosense/domain/dto/DeviceView.java` 迁至 `src/main/java/com/chh/autosense/domain/vo/UserView.java`、`src/main/java/com/chh/autosense/domain/vo/AdminUserPageView.java`、`src/main/java/com/chh/autosense/domain/vo/DeviceView.java` 并同步生产/测试引用；保持record/工厂/Schema及全部JSON，LoginResponse和请求仍归DTO，不直接暴露User/Device。（依赖 T030）
+- [X] T042 [US3] 实现认证决定、目标/动作/规范化参数hash、TTL/version与有效批准复用；变更失效、新步骤独立批准，每次请求重查权限，拒绝停整计划并审计。 文件：`src/main/java/com/chh/autosense/core/session/WorkflowApprovalService.java`。
 
-- [X] T034 [US2] 改进 `src/main/java/com/chh/autosense/service/user/AuthTokenService.java`：签发、验证续期、注销用原子Redis操作同时维护token和usertokens索引，7天滚动TTL一致；缺索引成员直接无效，不补回孤立token；索引撤销失败抛错，残留本体仅尽力清理，失败不恢复旧成员且不记录完整键/凭据。（依赖 T031）
+- [X] T043 [US3] 实现BaseCheckpointSaver全部SPI及白名单纯数据序列化；保存nextNode/父ID/graph/schema版本，按fence提交，list最新优先，不在SSE结束时release。 文件：`src/main/java/com/chh/autosense/graph/checkpoint/AssistantStateSerializer.java`、`MyBatisCheckpointSaver.java`、`src/main/java/com/chh/autosense/core/session/WorkflowCheckpointService.java`。
 
-- [X] T035 [US2] 调整 `src/main/java/com/chh/autosense/service/user/UserService.java`、`src/main/java/com/chh/autosense/mapper/UserMapper.java`、`src/main/java/com/chh/autosense/controller/UserController.java`：me经UserService访问Mapper；登录签发/禁用/启用按同用户行串行，查询包含禁用行，锁内复核状态；关键Redis失败传播并回滚数据库，启用先撤销旧索引；保留注册规则/BCrypt/默认普通用户/管理员自身限制并在提交后记录英文结果。在注册流程的BCrypt编码前增加UTF-8字节长度校验，保留现有字符长度、字母/数字及确认密码规则；超限抛BAD_REQUEST，不截断或trim密码，不修改既有哈希及登录验证方式。（依赖 T034、T033）
+- [X] T044 [US3] 迁移租约并实现MySQL claim/fence与Redis TTL辅助互斥；等待释放资源，重试不延长活跃截止，失租回调不能提交，新执行器不重发未知写。 文件：`src/main/java/com/chh/autosense/core/session/SessionLeaseService.java`、`src/main/java/com/chh/autosense/core/session/WorkflowClaimService.java`。
 
-- [X] T036 [US2] 修正 `src/main/java/com/chh/autosense/core/security/UserTokenResolver.java`、`src/main/java/com/chh/autosense/core/security/BearerTokenAuthFilter.java`、`src/main/java/com/chh/autosense/core/security/SecurityConfig.java` 与 `src/main/java/com/chh/autosense/core/security/DeviceOwnershipChecker.java`：真实token+索引+当前启用账号/角色共同校验，普通用户拒绝管理、管理员仍只访问本人设备会话，Redis不可用拒绝；显式dev模式固定user且生产关闭，认证后补MDC userId、拒绝英文WARN不泄露身份。（依赖 T035）
+- [X] T045 [US3] 实现启动只整理WAITING_RESUME、本人显式继续、原threadId/重试预算及成功step/command补齐；缺checkpoint/未知版本失败，终态不复活，批准/GET不代替重启恢复。 文件：`src/main/java/com/chh/autosense/core/session/WorkflowRecoveryService.java`。
 
-- [X] T037 [US2] 在 `src/main/java/com/chh/autosense/constant/UserRoleConstants.java` 收敛实际重复的user/admin角色常量并更新 `src/main/java/com/chh/autosense/service/user/UserService.java`、`src/main/java/com/chh/autosense/core/security/UserTokenResolver.java`、`src/main/java/com/chh/autosense/core/security/SecurityConfig.java` 的引用；保留现有角色字符串及权限语义，不添加角色修改或新的权限等级体系。（依赖 T036）
+- [X] T046 [US3] 提取CRUD/历史并解除旧Accepted依赖；本人过滤、旧状态投影、GET不执行/不调用expire；非终止/UNKNOWN拒绝删除，允许时按依赖处理所有新旧关联表。 文件：`src/main/java/com/chh/autosense/core/session/ConversationQueryService.java`、`AcceptedWorkflow.java`、`src/main/java/com/chh/autosense/core/session/memory/ConversationHistoryService.java`。
 
-- [X] T038 [US2] 调整 `src/main/java/com/chh/autosense/core/device/DeviceRegistryService.java`、`src/main/java/com/chh/autosense/controller/DeviceController.java`、`src/main/java/com/chh/autosense/core/device/client/DeviceSimulatorClient.java`：复用同一SN发现/绑定及列表逻辑、数据库唯一约束和稳定元数据，失败零新增且错误不泄露归属；保持supported/online投影含义，外部调用记录英文操作/结果/耗时，列表按整体汇总，不打印原始SN/名称/正文或逐项INFO。（依赖 T033、T032）
+- [X] T047 [US3] 接入持久步骤/批准/命令/审计事务，以数据库为尝试权威；复用成功子调用、昂贵阶段及写前/结果后checkpoint；G2允许simulated动作但必须真实持久化。 文件：`src/main/java/com/chh/autosense/graph/node/PersistentWorkflowActions.java`、`src/main/java/com/chh/autosense/graph/node/StepAttemptExecutor.java`。
 
-- [X] T039 [US2] 改进 `src/main/java/com/chh/autosense/core/session/DeviceLockService.java` 并核对 `src/main/java/com/chh/autosense/core/session/DeviceLocator.java`、`src/main/java/com/chh/autosense/core/security/DeviceOwnershipChecker.java`、`src/main/java/com/chh/autosense/core/device/DeviceAdapterRegistry.java` 的共享调用：设备锁沿用10分钟TTL，原子owner校验续租/释放，记录冲突/失效结果；不复制客户端/归属/互斥设施，不把租约当确认或005幂等。（依赖 T032、T036）
+- [X] T048 [US3] 实现创建/消息/澄清/批准/恢复/取消入口，仅负责认证接纳、claim/预算和graph资源；白名单delta→updateState返回config→resume，等待释放资源，不复制旧路由/能力switch。 文件：`src/main/java/com/chh/autosense/core/session/WorkflowExecutionService.java`。
 
-- [X] T040 [US2] 运行已有 `src/test/java/com/chh/autosense/unit/UserServiceTest.java`、`src/test/java/com/chh/autosense/unit/UserTokenResolverTest.java`、用户/设备契约及 `src/test/java/com/chh/autosense/integration/UserManagementIT.java`、TokenRevocationIT、DeviceBindingConcurrencyIT、DeviceLockIT；在 `specs/002-assistant-foundation/validation.md` 记录旧数据、撤销/故障回滚、SN唯一性/owner与英文脱敏结果，沿用quickstart的无密码Redis和独立设备前提。（依赖 T037、T038、T039）
+### G2：API、流及端到端验收
 
-**Checkpoint**：US2可通过用户/设备API独立验证，不依赖领域处理器完成；鉴权、token撤销和数据兼容结论必须来自真实相应依赖的验证。
+- [X] T049 [US3] 新增批准/恢复/取消DTO及inputRequestId/expectedVersion、可选workflow投影；拒绝上传state/可信授权，保留既有字段和SessionResponse外形。 文件：`src/main/java/com/chh/autosense/domain/dto/WorkflowApprovalRequest.java`、`WorkflowResumeRequest.java`、`WorkflowCancelRequest.java`、`src/main/java/com/chh/autosense/domain/vo/WorkflowView.java`。
 
-## Phase 5: User Story 3 — 保持会话与公共响应一致（P1）
+- [X] T050 [US3] Controller改用新执行/查询服务，保留会话路径并新增workflow GET/approval/resume/cancel；旧confirmRepair仅映射唯一有效CONTROL批准，不能Query/重启恢复，歧义冲突，不依赖Orchestrator。 文件：`src/main/java/com/chh/autosense/controller/SessionController.java`。
 
-**前置**：Phase 2及US1完成。US2可独立推进；最终合并验收需其权限修正完成。
+- [X] T051 [US3] 接入graph stream与legacy SSE桥，仅投影OutputContext、按eventId去重，内部审计序列可有间隙；步骤结果不关流，checkpoint中断完成才发送awaiting并关闭。 文件：`src/main/java/com/chh/autosense/graph/WorkflowEventProjector.java`、`src/main/java/com/chh/autosense/controller/SessionController.java`。
 
-**目标**：完整可见历史、跨轮等待/恢复、并发截止与SSE补查一致，英文日志可关联且不泄露内部内容。
+- [X] T052 [US3] 接入transport/workflowRequestId、step/attempt的MDC白名单及英文日志；afterCommit才报成功，模型/设备耗时及失败来源可辨，非对话日志无空参数块。 文件：`src/main/java/com/chh/autosense/utils/LogContextUtils.java`、`src/main/resources/log4j2-spring.xml`。
 
-**Independent Test**：跨能力/跨轮/多用户以及超过20条历史场景，输入保存一次、完整结果可补查；同会话并发/丢租约/迟到回调/重启超时不污染新轮。等待和终态闭流、断线不回放；状态/日志/持久化事实一致，旧确认不执行设备。
+- [X] T053 [US3] 实现进程级验证脚本并执行T031–T035的G2场景；真正重启JVM验证未批准/有效批准/昂贵结果/命令结果已提交恢复，仅本人显式继续执行，旧Redis不作为恢复源。 文件：`scripts/manual-test/langgraph-restart-validation.py`、`specs/002-assistant-foundation/validation-langgraph.md`。
 
-模型配置替换与real失败场景复用US1的T015验收；本故事不重复创建一套AI配置测试。
+**G2门禁**：数据库批准、命令与重启恢复通过，才接真实能力；MemorySaver不能证明本阶段。
 
-### 先定义验收测试
+### G3：先定义真实AI、知识与记忆测试
 
-- [X] T041 [P] [US3] 扩展 `src/test/java/com/chh/autosense/contract/SessionApiContractTest.java` 与 `src/test/java/com/chh/autosense/unit/SessionStateMachineTest.java`：先定义原五类SSE/HTTP错误体和GET补查兼容、DISPATCHING/FAILED_REQUEST/ERROR增量、等待/终态闭流、GUIDED_MANUAL可新轮及非法迁移；不以mock编排的契约测试代替完整会话行为验收。
+- [X] T054 [P] [US3] 先定义真实AiServices+WireMock多步解析、安全额外字段、模板字符/注入、缺资源/变量不符/模型配置失败和禁止静默mock测试。 文件：`src/test/java/com/chh/autosense/graph/IntentPlannerServiceTest.java`、`src/test/java/com/chh/autosense/unit/AiServiceAssemblyTest.java`。
 
-- [X] T042 [P] [US3] 新增 `src/test/java/com/chh/autosense/integration/ConversationHistoryIT.java`：实际公共入口测试跨能力/多用户/多轮、20条窗口及当前一次、冷启动/旧Redis缓存、完整人工步骤与售后字段保留后再清投影、旧意图可读及旧确认不能执行；使用含字面模板标记/反斜杠的本人输入验证数据库与GET仍返回原文，内部prompt/渲染包装不进入历史或公开响应。通过仅测试处理器构造结论，不要求交付诊断/控制业务；实际SDK绑定复用T015，不能因原文含同样文本就对历史去重。
+- [X] T055 [P] [US3] 先定义同用户跨会话隔离、20条历史+当前输入一次、澄清/恢复边界，以及token同步/异步完成、部分输出超时重试/TEXT_RESET、溢出与晚到callback。 文件：`src/test/java/com/chh/autosense/graph/GraphChatMemoryTest.java`、`GraphTokenStreamTest.java`。
 
-- [X] T043 [P] [US3] 新增 `src/test/java/com/chh/autosense/integration/SessionLifecycleIT.java`：定义同会话并发、忙请求不写消息、失租约、迟到回调、固定截止主动收尾、GET/后续POST崩溃恢复、等待续办/取消、断线补查、提交失败和事务回滚；观察真实DB/Redis与SSE，所有恢复零模型重放/设备写，不能只测试内存锁。补充未接纳请求、最终写入回滚及提交结果无法确认的场景：错误流能够关闭，不新增无效用户消息、不修改其他请求、不发送未经确认的成功结论；发送错误通知不改变数据库事实，后续恢复无模型重放或设备写。
+- [X] T056 [P] [US3] 迁移旧知识handler有效测试断言至知识业务测试：常识零检索、类型筛选、低分回退、跨型号声明、来源持久化、用户缓存复用，不依赖旧协议。 文件：`src/test/java/com/chh/autosense/unit/KnowledgeCapabilityHandlerTest.java`、`src/test/java/com/chh/autosense/unit/KnowledgeWorkflowServiceTest.java`。
 
-- [X] T044 [P] [US3] 新增 `src/test/java/com/chh/autosense/integration/AssistantLoggingIT.java`，复用 `src/test/java/com/chh/autosense/support/LogCaptureSupport.java`：两会话并发/线程复用、同步及异步回调/定时收尾不串MDC；英文关键事件级别正确，prompt正文、渲染资料、凭据测试标记及含敏感message/cause/suppressed的异常不进入最终日志，回滚无成功、单次堆栈、无逐token/列表逐项INFO，降低运行日志后DB追溯仍保存。工厂装配/SDK失败的真实日志断言由T015提供，此处验证公共异步边界；不将合法用户历史的原文保存误判为日志泄露。
+### G3：真实能力接入与验收
 
-### 实现与整合
+- [X] T057 [US3] 创建真实Planner AI Service、专用工厂及资源prompt；复用conversation-input/PromptInputEncoder/AiServiceValidator，方法级fromResource、结构化候选，无设备工具或统一工厂，节点接入。 文件：`src/main/java/com/chh/autosense/ai/IntentPlannerService.java`、`src/main/java/com/chh/autosense/ai/factory/IntentPlannerServiceFactory.java`、`src/main/resources/prompt/intent-planner.txt`。
 
-- [X] T045 [US3] 将 `src/main/java/com/chh/autosense/domain/dto/ChatMessageView.java`、`src/main/java/com/chh/autosense/domain/dto/SessionListItemView.java` 迁至 `src/main/java/com/chh/autosense/domain/vo/ChatMessageView.java`、`src/main/java/com/chh/autosense/domain/vo/SessionListItemView.java` 并更新 `src/main/java/com/chh/autosense/controller/SessionController.java`、`src/main/java/com/chh/autosense/core/session/SessionOrchestrator.java` 和测试引用；保持record及排序/时间/JSON，SessionResponse/ConclusionDto/请求和SseEvent形态不变。（依赖 T041）
+- [X] T058 [US3] 复用历史建立请求级LangChain4j ChatMemory/messages，按messageId边界限窗；澄清最新输入只一次、恢复不混其他轮次，共享代理不挂可写memory/@MemoryId。 文件：`src/main/java/com/chh/autosense/core/session/memory/GraphChatMemoryAdapter.java`。
 
-- [X] T046 [US3] 调整 `src/main/java/com/chh/autosense/core/session/SessionContext.java` 与 `src/main/java/com/chh/autosense/core/session/SessionContextStore.java`：采用带version/userId/round/messageId/能力的不可变快照，autosense:session:v2:{sessionId}以SET+TTL完整JSON替换，30分钟默认；旧Hash/错版本/归属或轮次不符按上下文失效处理，禁止恢复旧控制授权或保留覆盖前残字段。（依赖 T045）
+- [X] T059 [US3] 认证接纳/取得执行权后直接初始化userId单键代理组合；解除AcceptedConversationInitializer依赖，保留专用工厂、原子发布和过期，不增加会话/设备类型缓存键。 文件：`src/main/java/com/chh/autosense/service/knowledge/UserAiServiceCache.java`、`src/main/java/com/chh/autosense/core/session/WorkflowExecutionService.java`。
 
-- [X] T047 [US3] 在 `src/main/java/com/chh/autosense/core/session/SessionOrchestrator.java` 与 `src/main/java/com/chh/autosense/core/session/SessionProcessingService.java` 完成统一可见结果落库：路由/能力结果的完整回答、人工步骤和售后联系方式由公共编排写一次，等待/终态投影与追溯/清指针同事务；失败保存脱敏说明及ERROR投影，不把部分token当完整回答，旧结论完整保存后才清空。（依赖 T046、T042）
+- [X] T060 [US3] 从旧handler抽取知识业务并接入KnowledgeConsult；复用共享索引/Advanced RAG/Direct与Enhanced工厂，保留直答/低相关度回退/跨型号说明，提交正文/来源而非text sink。 文件：`src/main/java/com/chh/autosense/service/knowledge/KnowledgeWorkflowService.java`、`src/main/java/com/chh/autosense/graph/node/KnowledgeConsult.java`。
 
-- [X] T048 [US3] 调整 `src/main/java/com/chh/autosense/core/session/SessionOrchestrator.java` 的续聊/等待分支并同步 `src/main/java/com/chh/autosense/core/session/statemachine/SessionStateMachine.java`：已结束会话新消息产生新round重新路由，澄清不重复拼当前输入；能力等待先由原处理器判定续办/取消/失效再转新轮，confirmRepair只有可追溯意向、不直达runner，缺失处理器明确失败。（依赖 T047、T041）
+- [X] T061 [US3] 实现容量256队列→嵌入AsyncGenerator→独立OutputContext snapshot→Data.done(finalDelta)；callback不直写SSE，临时token不入audit，失败TEXT_RESET，legacy缓冲至成功，迟到callback不污染新attempt。 文件：`src/main/java/com/chh/autosense/graph/node/AiTokenStreamAdapter.java`。
 
-- [X] T049 [US3] 在 `src/main/java/com/chh/autosense/core/session/SessionProcessingService.java`、`src/main/java/com/chh/autosense/core/session/SessionOrchestrator.java` 补GET/下一次POST恢复：锁定同一processingMessageId且DB截止已到才结清REQUEST_TIMEOUT，未到期不得因Redis租约缺失重放；旧无安全上下文的活动状态保存中止/失效说明，保留旧ID/意图/历史，任何恢复不覆盖新处理指针或执行设备。（依赖 T048、T043）
+- [X] T062 [US3] 迁移旧AssistantProperties预算消费者；关闭模型/embedding/device SDK内置重试，由图统一管理，timeout不超剩余截止；embedding启动预算与workflow执行预算分开。 文件：`src/main/java/com/chh/autosense/config/LangChain4jConfig.java`、`KnowledgeEmbeddingConfig.java`、`KnowledgeEmbeddingProperties.java`、`src/main/java/com/chh/autosense/core/device/client/DeviceSimulatorClient.java`、`src/main/java/com/chh/autosense/graph/node/StepAttemptExecutor.java`。
 
-- [X] T050 [US3] 调整 `src/main/java/com/chh/autosense/domain/message/SseEventStream.java` 与 `src/main/java/com/chh/autosense/controller/SessionController.java`：替换独立硬编码超时为公共配置协调值，保留五种事件形状与接受前JSON/接受后HTTP200 error语义；awaiting和成功conclusion在持久化提交成功后发送；已接纳业务失败按事务结果发送error。未接纳请求及持久化异常允许按会话契约直接发送脱敏error并关闭流，不伪造已保存状态，不凭闭流清理处理指针或重放执行，连接回调恢复旧MDC，断线不回放/不假成功，连接关闭与业务收尾分离且至多一次。（依赖 T049）
+- [X] T063 [US3] 登记planner及所有仍用资源，验证fromResource/UTF-8/变量和安全英文调用日志；保留供应商故障来源，不记完整prompt/消息/原始异常。 文件：`src/main/java/com/chh/autosense/utils/AiServiceValidator.java`、`AiCallLog.java`、`src/test/java/com/chh/autosense/unit/AiCallLogTest.java`。
 
-- [X] T051 [US3] 完善 `src/main/java/com/chh/autosense/core/session/SessionTransitionLog.java`、`src/main/java/com/chh/autosense/core/session/SessionOrchestrator.java`、`src/main/java/com/chh/autosense/domain/message/SseEventStream.java` 的英文状态/超时/并发/旧回调事件：记录已验证ID/fromState/toState/result，成功在提交后输出；忙请求不伪装成已有messageId，旧回调用旧快照，最终异常仅一次脱敏堆栈，DB route/state/request追溯不依赖日志级别。（依赖 T050、T044）
+- [X] T064 [US3] 执行G3真实代理、T054–T056及既有知识/缓存/RAG回归；LLM_MODE=mock仍用相同专用工厂，区分stub流程与mock模型，正文/来源恢复场景通过并记录。 文件：`specs/002-assistant-foundation/validation-langgraph.md`。
 
-- [X] T052 [US3] 执行 `src/test/java/com/chh/autosense/integration/ConversationHistoryIT.java`、`src/test/java/com/chh/autosense/integration/SessionLifecycleIT.java`、`src/test/java/com/chh/autosense/integration/AssistantLoggingIT.java` 及会话/状态机契约回归，在 `specs/002-assistant-foundation/validation.md` 记录跨轮、并发、补查、DTO/历史与日志证据；实际推进完成/等待/失败，不能只验证HTTP外壳或旧001勾选记录。（依赖 T051、T041、T042、T043）
+### G4：现有领域能力迁接
 
-**Checkpoint**：US3完成后，三项公共用户故事均有独立场景；需在最终阶段合并验证公共变更、记录确切结果。
+- [X] T065 [US3] 先定义真实client调用计数：Query确认前零读取、Diagnosis零设备调用、Control无隐式复检；过期权限/批准拒绝、未知写零重发、条件false零命令，复检拒绝保留控制事实。 文件：`src/test/java/com/chh/autosense/graph/DeviceWorkflowSafetyTest.java`。
 
-## Phase 6: Polish — 合规审查与交付验证
+- [X] T066 [US3] Query子图迁接DeviceLocator/client/adapter及diagnostic_snapshot；本地列表/实时/取证/复检均独立批准，证据含目标/时间，持久结果供后续引用。 文件：`src/main/java/com/chh/autosense/core/device/DeviceQueryService.java`、`src/main/java/com/chh/autosense/graph/subgraph/QuerySubGraphFactory.java`。
 
-**前置**：US1、US2、US3均完成；本阶段不实现其他feature的业务能力。
+- [X] T067 [US3] Diagnosis子图复用规则、DiagnosisReasonerServiceFactory、RAG及售后，消费前序证据，持久诊断/建议/候选；不访问client或调用Control，缺新步骤提示重新规划。 文件：`src/main/java/com/chh/autosense/core/analysis/DiagnosisWorkflowService.java`、`src/main/java/com/chh/autosense/graph/subgraph/DiagnosisSubGraphFactory.java`。
 
-- [X] T053 按 `specs/002-assistant-foundation/plan.md`、`specs/002-assistant-foundation/contracts/routing-contract.md`、`specs/002-assistant-foundation/contracts/logging-contract.md`、`specs/002-assistant-foundation/contracts/prompt-contract.md` 做源码/装配审查并记入 `specs/002-assistant-foundation/validation.md`：四条AI实际调用无旁路，固定规则/包装全部在六资源并由方法级fromResource加载，无内联回退、用户资料进入system或原文编码旁路；业务代码无模型原生HTTP/自动写工具、Controller无Mapper，DTO/VO/枚举/utils归位，record不整体打印。逐项记录15条FR与章程2.3.0证据，保留SDK自动生成格式；未接入领域日志/实体仍归003/004/001/005。
+- [X] T068 [US3] Control迁接安全单操作、权限/风险/参数及DeviceLockService；移除runner隐式读取和独立旧日志写入，统一command事务，无远端幂等时UNKNOWN停止，复检另走Query。 文件：`src/main/java/com/chh/autosense/core/repair/RepairExecutor.java`、`src/main/java/com/chh/autosense/graph/subgraph/ControlSubGraphFactory.java`。
 
-- [X] T054 按 `specs/002-assistant-foundation/quickstart.md` 执行 `mvnw.cmd verify`、runtime/test依赖树、显式IT集合（-Pit配合 `-Dtest=UserManagementIT,DeviceBindingConcurrencyIT,SessionProcessingIT,AssistantRoutingIT,TokenRevocationIT,DeviceLockIT,ConversationHistoryIT,SessionLifecycleIT,AssistantLoggingIT`）及第6节只读JAR脚本，将结果写入 `specs/002-assistant-foundation/validation.md`：核对单一Log4j2提供者/配置、全部公共单元与契约、新基础/路由/令牌/设备锁/历史/会话/日志IT；核对 `target/AutoSense-0.0.1-SNAPSHOT.jar` 中六个BOOT-INF/classes/prompt条目各一次、非空/UTF-8无BOM，分别与 `src/main/resources/prompt/` 六源文件逐字节相同，输出文件名/PASS而非正文。失败按原因修复后重跑受影响检查，不用资源存在替代代理调用测试；不把旧修复全量-Pit纳为002门槛或以默认verify宣称Docker/真实模型已覆盖。（依赖 T053）
+- [X] T069 [US3] 将旧修复/人工引导IT改为新独立确认步骤，运行隔离模拟器G4、T065及锁/client回归；无能力路径明确不可用并列所属feature缺口，不以stub代替真实验收。 文件：`src/test/java/com/chh/autosense/integration/AutoRepairFlowIT.java`、`ManualGuideIT.java`、`specs/002-assistant-foundation/validation-langgraph.md`。
 
-- [X] T055 按 `specs/002-assistant-foundation/quickstart.md` 在隔离验证数据上完成注册/登录/绑定/模糊会话/GET历史/注销人工链，并将真实模型无设备副作用小样本的可选执行结果写入 `specs/002-assistant-foundation/validation.md`；不打印秘密，真实模型条件不足记未运行，不能用强制mock的IT声称验证real，不操作业务设备。（依赖 T054）
+### G5前置：前端交互
 
-- [X] T056 回填 `specs/002-assistant-foundation/quickstart.md`、`specs/002-assistant-foundation/plan.md`、`specs/002-assistant-foundation/spec.md`、`specs/002-assistant-foundation/contracts/prompt-contract.md`、`specs/002-assistant-foundation/validation.md` 与 `specs/README.md`：对齐章程2.3.0、实际六资源/注解、已存在测试类与精确命令、资源/绑定/零远程失败/JAR验证证据、实际模式/报告/未运行项和feature状态；只勾选真正完成的 `specs/002-assistant-foundation/tasks.md`，保持其他四个feature范围和旧001完成记录。（依赖 T055）
+- [X] T070 [US3] 遵循frontend指南，从新后端OpenAPI再生成客户端及类型，新增workflow查询/批准/恢复/取消DTO，保留其他API，不手写覆盖生成类型。 文件：`frontend/AGENTS.md`、`frontend/src/api/sessionController.ts`、`frontend/src/api/typings.d.ts`。
+
+- [X] T071 [US3] 显示WorkflowEvent步骤/状态/失败、独立Query/Control确认、inputRequestId/version、显式resume/cancel、TEXT_RESET及重复点击保护；兼容legacy避免双文本，断线只GET，simulated/未复检如实展示。 文件：`frontend/src/utils/sse.ts`、`frontend/src/pages/console/ChatPage.vue`。
+
+- [X] T072 [US3] 运行前端type-check/build并手动检查旧会话、多轮、条件、两独立批准、失败停止、刷新、重启继续、重复请求与跨用户拒绝；记录证据，不自动批准。 文件：`specs/002-assistant-foundation/validation-langgraph.md`。
+
+**US3门禁**：G2/G3/G4与前端均有证据；入口切换不能替代Phase6源码删除。
+
+## Phase 6: Polish & Cross-Cutting — G5删除与最终验收
+
+**前置**：三个故事通过；共享职责先迁移再删除，不整包删除core/session。
+
+- [X] T073 在替代职责完整后删除旧Orchestrator/Processing/Transition/Context/Store/RepairRunner/StateMachine源码，迁移全部调用者/Bean/调度；保留新CRUD/事务/租约/数据，无精简壳或旧Redis恢复。 文件：`src/main/java/com/chh/autosense/core/session/SessionOrchestrator.java`、`SessionProcessingService.java`、`SessionTransitionLog.java`、`SessionContext.java`、`SessionContextStore.java`、`RepairExecutionRunner.java`、`statemachine/SessionStateMachine.java`。
+
+- [X] T074 删除旧dispatcher/handler/CapabilityRequest/Result及DirectAnswerer全部回调封装，清text sink装配；保留已抽取知识业务与专用AI工厂。 文件：`src/main/java/com/chh/autosense/core/routing/CapabilityDispatcher.java`、`AssistantCapabilityHandler.java`、`CapabilityRequest.java`、`CapabilityResult.java`、`KnowledgeCapabilityHandler.java`。
+
+- [X] T075 删除旧IntentRouter接口/工厂/候选/prompt及分类器/校验器专属类型；历史展示必要枚举只读保留，不保留可执行旧路由。 文件：`src/main/java/com/chh/autosense/ai/IntentRouterService.java`、`ai/factory/IntentRouterServiceFactory.java`、`ai/model/RoutingDecision.java`、`src/main/resources/prompt/intent-router.txt`、`src/main/java/com/chh/autosense/core/routing/`。
+
+- [X] T076 删除旧initializer/AssistantProperties全部注入及废弃键；确认T059/T062和SSE/租约消费者已迁移，配置无旧链回退开关。 文件：`src/main/java/com/chh/autosense/core/session/AcceptedConversationInitializer.java`、`src/main/java/com/chh/autosense/config/AssistantProperties.java`、`src/main/resources/application.yaml`。
+
+- [X] T077 迁移或移除旧状态机/回调/Processing/Routing测试及记录夹具依赖，保留有效业务断言；补新流程的生命周期/MDC/afterCommit/脱敏回归，不得mock已删除旧链。 文件：`src/test/java/com/chh/autosense/unit/SessionStateMachineTest.java`、`LangChain4jDirectAnswererTest.java`、`src/test/java/com/chh/autosense/integration/SessionProcessingIT.java`、`AssistantRoutingIT.java`、`SessionLifecycleIT.java`、`AssistantLoggingIT.java`、`src/test/java/com/chh/autosense/support/RecordingCapabilityConfiguration.java`、`src/test/java/com/chh/autosense/integration/AssistantLoggingIT.java`、`src/test/java/com/chh/autosense/integration/SessionLifecycleIT.java`。
+
+- [X] T078 核对最终装配：生产禁stub、单一graph引擎、失败无fallback；切换前排空或明确结束无checkpoint旧请求，历史只读兼容，MemorySaver不进应用恢复。 文件：`src/main/java/com/chh/autosense/config/GraphConfiguration.java`、`src/main/resources/application-graph-stub.yaml`。
+
+- [X] T079 同步当前计划/quickstart/规格总览/001与003接入说明及章程过期目录/旧类示例；只落实已授权graph路径及移除，按章程记版本/影响，不扩其他原则，保留旧档案。 文件：`specs/002-assistant-foundation/plan.md`、`quickstart.md`、`specs/README.md`、`.specify/memory/constitution.md`。
+
+- [X] T080 验证装配无旧Bean、全部对话执行走graph且故障无fallback；源码/配置/测试搜索覆盖删除矩阵，新服务无旧route/continueWaiting/回调SSE链，记录结果。 文件：`src/test/java/com/chh/autosense/graph/LegacyOrchestrationRemovalTest.java`、`specs/002-assistant-foundation/validation-langgraph.md`。
+
+- [X] T081 执行完整默认verify并修复迁移失败，核对依赖树及全部实际prompt引用的Boot JAR字节一致；不使用旧固定六资源清单，记录证据。 文件：`pom.xml`、`mvnw.cmd verify`、`specs/002-assistant-foundation/validation-langgraph.md`。
+
+- [X] T082 执行完整verify -Pit、新建/升级库、JVM重启、JAR启动和前端构建验收，含未知写/迟到callback/确认取消竞争/删除/真实设备；外部前提缺失保持未完成并说明。 文件：`specs/002-assistant-foundation/quickstart.md`、`mvnw.cmd verify -Pit`。
+
+- [X] T083 核对全部任务勾选有本期证据，覆盖FR-001–023/SC-001–012，更新spec/plan状态；全部阶段通过且旧源码/Bean/运行引用为零才声明完成。 文件：`specs/002-assistant-foundation/tasks.md`、`validation-langgraph.md`。
 
 ## Dependencies & Execution Order
 
 ```mermaid
 flowchart TD
-    S["Phase 1: T001–T002"] --> F["Phase 2: T003–T013"]
-    F --> U1["US1: T014–T029"]
-    F --> U2["US2: T030–T040"]
-    U1 --> U3["US3: T041–T052"]
-    U1 --> P["Phase 6: T053–T056"]
-    U2 --> P
-    U3 --> P
+  Setup[Phase1 T001-T003] --> Foundation[Phase2 T004-T010]
+  Foundation --> US1[US1 G1 T011-T025]
+  Foundation --> US2[US2 T026-T030]
+  US1 --> G2[US3 G2 T031-T053]
+  G2 --> G3[US3 G3 T054-T064]
+  G3 --> G4[US3 G4 T065-T069]
+  G4 --> UI[US3 frontend T070-T072]
+  UI --> Delete[Phase6 G5 T073-T083]
+  US2 --> Delete
 ```
 
-1. 默认按T001至T056执行；有并行条件时，仅放开下表列出的波次及无共享写入文件的故事工作。
-2. US1和US2在共享基础完成后可以分别推进。US3使用US1的能力契约/公共路由，不能独立重造编排；US2的接口验收不依赖US1领域输出。
-3. 同一文件有多项任务时按依赖/编号串行，尤其pom.xml、application.yaml、各专用工厂与六 prompt 资源、PromptInputEncoder、LangChain4jConfig、SessionOrchestrator、SessionController、SecurityConfig及validation.md。
-4. 每个故事先写行为断言再实现模型/服务/入口，最后运行对应验收；不能以新增测试文件或旧测试勾选替代执行证据。
-5. prompt增量沿T015验收定义→T020资源/工厂→T021配置接线→T022数据编码与适配→T023错误区分→T029实际验证推进；T042/T044接入历史/日志回归，最后T053/T054审查与制品验证。T020的启动样例使用合成非null数据，不依赖尚未实施的T022编码器；按编号串行即可避免循环。
-6. 真实模型小样本为独立人工验证，缺少提供商条件时明确记录未运行，不阻断已经满足的离线代理协议验收；不能借此免除默认verify或本期必需IT。
+- 无局部说明时按阶段/子阶段顺序执行。T004后T005/T006并行，T007依赖其类型；T009/T010为最小框架装配，不倒依赖T023。
+- US1：T011–T013并行定义测试，T014→T015→T016–T018；T019/T020/T021依赖T007/T018后并行，T022后T023汇合，T024统一重试，T025验收。
+- US2：T026/T027并行，各自修复T028/T029后T030串行记录；可与US1独立工作，不并发跑共享容器IT。
+- US3：T031–T035并行定义；T036→T037→T038依次落schema/实体/mapper。T039–T048按事务/命令/批准/saver/claim/入口顺序，T049–T052串行合入共享Controller，T053是G2门禁。
+- G3测试T054–T056并行，生产T057–T063按共享工厂/配置顺序合入，T064验收。G4与前端按序，批准未可靠持久化前不能连接真实设备。
+- T073–T078删除须在替代路径/断言迁移后执行，删除同批修复全部编译引用并验证，不能留下可发布的破损构建；T079–T083收尾。
 
-### 可并行波次与每个故事示例
+## Parallel Examples
 
-| 前置已完成 | 可并行任务 | 文件边界 |
+| 故事/波次 | 可并行任务 | 前置及限制 |
 | --- | --- | --- |
-| Phase 1 | T003、T004、T005、T007 | 枚举/状态机、配置、实体、日志utils互不修改同一文件 |
-| Phase 2，US1测试定义 | T014、T015、T016 | 路由契约测试、代理/配置/prompt测试、公共入口IT及测试接收器分别独立；T015只读复用T013的LogCaptureSupport |
-| Phase 2，US2测试定义 | T030、T031、T032 | 用户设备契约、令牌撤销IT、设备并发/锁IT分别独立 |
-| US1完成，US3测试定义 | T041、T042、T043、T044 | 会话外壳/状态机、历史IT、生命周期IT、日志IT分别独立 |
+| US1测试 | T011计划、T012主图、T013流 | Phase2完成，不同测试文件 |
+| US1子图 | T019查询、T020诊断、T021控制 | T007/T018契约稳定，T023汇合 |
+| US2 | T026账号、T027绑定 | Phase2完成，共享IT运行串行 |
+| US3数据测试 | T031升级、T032checkpoint、T033批准、T034命令审计、T035恢复API历史 | US1完成，仅并行编写不同文件 |
+| US3真实AI测试 | T054代理、T055memory/token、T056知识 | G2通过；生产工厂/配置随后串行 |
 
-共有14项标记[P]。表中并行针对编辑任务；共享数据库/Redis或进程日志配置的测试执行须隔离或串行，不能从[P]推断测试框架可全量并发。T029/T040/T052向同一validation.md写验证记录，收尾时串行合并。
+## 需求与契约覆盖
 
-## Requirements Traceability
-
-| 规格要求 | 主要实现任务 | 关键验证任务 |
-| --- | --- | --- |
-| FR-001 统一四能力入口 | T017、T023–T027 | T014、T016、T029 |
-| FR-002 拆分意图/型号/售后 | T017、T023、T025、T026 | T014、T016 |
-| FR-003 本轮/上下文/澄清/失败 | T009、T010、T023、T026–T028、T048 | T014、T042、T043 |
-| FR-004 实际AIService重写 | T018、T020–T022 | T015、T029、T053 |
-| FR-005 统一外部配置/real失败 | T004、T020–T022、T025 | T015、T029 |
-| FR-006 AI候选与设备写隔离 | T019、T020、T023、T024、T026、T048 | T014、T016、T042、T053 |
-| FR-007 数据/DTO复用与归位 | T005、T006、T018、T033、T045 | T012、T030、T041、T042 |
-| FR-008 用户/管理员及安全存储 | T033–T037 | T030、T031、T040 |
-| FR-009 认证/本人范围/撤销 | T009、T034–T037、T039 | T030、T031、T040、T042 |
-| FR-010 SN稳定绑定与支持投影 | T033、T038 | T030、T032、T040 |
-| FR-011 绑定错误/并发零新增 | T038 | T030、T032、T040 |
-| FR-012 长期历史/20条/多轮隔离 | T009–T011、T022、T026–T028、T046–T050 | T012、T015、T042、T043 |
-| FR-013 SSE及补查兼容 | T026、T027、T045、T047–T050 | T041、T043、T052 |
-| FR-014 追溯及敏感信息 | T007–T009、T022–T024、T027、T035、T036、T038、T047、T051 | T013、T044、T053、T054 |
-| FR-015 共享设备基础/互斥 | T038、T039 | T032、T040 |
-| 章程：Entity/Lombok/record | T001、T005、T018、T033、T045 | T012、T015、T030、T041 |
-| 章程：Log4j2/英文日志/异步关联 | T001、T002、T007、T008、T020、T022、T027、T035、T036、T038、T051 | T013、T015、T044、T053、T054 |
-| 章程：资源prompt/方法级fromResource/启动失败/数据绑定 | T020–T023 | T015、T016、T029、T042、T044、T053、T054 |
-
-SC-001由T014/T016验证分类与零写；SC-002由T012/T030/T032/T040/T042验证兼容；SC-003由T013/T030/T031/T044验证拒绝与零泄露；SC-004由T012/T016/T042/T043/T044验证关联与一致性；SC-005由T015/T016/T029/T053验证配置和共享接入。最终证据在T054–T056收敛。
+| 要求 | 任务及验收 |
+| --- | --- |
+| FR-001–006；SC-001/005 | T014–T025、T054/T057、T065–T069：计划/条件/引用/澄清/配置 |
+| FR-007–011；SC-002/003 | T026–T030、T042/T048/T050：账号设备及每次请求权限 |
+| FR-012–015；SC-004/006 | T035/T039/T046/T049–T064、T070–T072：消息/流/审计/共享能力 |
+| FR-016–018；SC-007/008 | T024/T033/T034/T041/T042/T044/T047/T065–T069：批准/重试/幂等/未知结果 |
+| FR-019–021；SC-009/010 | T032/T035/T043/T045/T053：checkpoint/停止/昂贵结果/进程恢复 |
+| FR-022；SC-011 | T046/T059/T062、T073–T083：职责迁移与删除门禁 |
+| FR-023；SC-012 | T031/T034/T036–T041/T053：五类数据/表复用/去重/存量升级 |
+| graph/routing | T004–T025、T032–T048、T057/T065–T069 |
+| assistant-api/user-device | T006/T013/T026–T035、T046/T048–T051、T070–T072 |
+| prompt/logging | T003/T052/T054/T057–T063/T077/T081 |
 
 ## Implementation Strategy
 
-**MVP演示**：先完成Phase 1、Phase 2与US1，演示统一入口、真实AIService资源加载/JSON绑定/分类/流式适配、澄清/错误和仅测试能力分发；包含本地资源校验失败零模型请求。所有未接入生产能力明确不可用，设备写为零。US1完成后继续推进剩余任务；正式交付002仍要求全部三个P1故事及最终验收。
+1. **骨架MVP**：Phase1–3，T001–T025。验证离线顺序、确认门及输出，不宣称真实控制或跨重启恢复；US2独立回归。
+2. **持久HTTP增量**：G2，T031–T053。MySQL/SSE、五类数据及显式恢复验证通过后才接真实能力。
+3. **真实能力增量**：G3复用003/专用工厂，G4迁接现有查询/诊断/控制；新业务范围须同步对应feature计划/任务。
+4. **最终替换**：前端适配，共享职责迁移后删除旧源码/Bean/配置/测试依赖，完整回归；旧59项记录不转换为新图完成。
 
-**增量交付**：US2继续复用账户/设备并补撤销、owner原子性与API兼容；US3在US1链上完成历史、续聊、崩溃恢复、SSE与日志一致性；最终统一验证，不引入003/004/001/005的内部业务。各故事的通过证据独立记录，后续修改共享基础时重跑受影响场景。
-
-**完成统计**：
-
-| 阶段 | 任务范围 | 数量 |
-| --- | --- | --- |
-| Setup | T001–T002 | 2 |
-| Foundational | T003–T013 | 11 |
-| US1（P1） | T014–T029 | 16 |
-| US2（P1） | T030–T040 | 11 |
-| US3（P1） | T041–T052 | 12 |
-| Polish | T053–T056 | 4 |
-| 合计 | T001–T056 | 56 |
-
-本次复用全部56个任务ID并保持未勾选状态，提示词增量已并入现有实施与验证任务。可选真实模型验证的“未运行”必须保留在交付记录中，不可解释为测试通过；也不把本任务文档生成视为功能已经实施。
-
-## 2026-09-09 意图识别扩展任务
-
-- [X] T057 扩展 RoutingDecision/CapabilityRequest、资源提示词、校验器和会话分发，透传知识库检索判断。
-- [X] T058 扩展 mock 分类和 003/004 接入契约，覆盖依赖本人设备参数的只读问答并保留控制/诊断边界。
-- [X] T059 验证真实 AI Service 字段解析、非法组合、跨轮透传与零设备访问，记录测试结果。
-
-验证：2026-09-09，`./mvnw.cmd -Pit "-Dtest=AssistantRoutingContractTest,AiServiceAssemblyTest,AssistantRoutingIT" test`，15 项测试通过（5 项契约、6 项真实 SDK/本地 HTTP 协议替身、4 项隔离 MySQL/Redis 集成）。记录位于 `target/routing-extension-validation.log`。未调用真实模型提供商，本记录不代表对实际模型语义分类准确率的测量；未访问真实设备。
+**Progress**: 83/83 tasks complete. Evidence: validation-langgraph.md. Application database migration has not been applied.

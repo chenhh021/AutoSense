@@ -2,9 +2,9 @@ package com.chh.autosense.unit;
 
 import com.chh.autosense.ai.factory.DirectAnswerServiceFactory;
 import com.chh.autosense.ai.factory.DiagnosisReasonerServiceFactory;
-import com.chh.autosense.ai.factory.IntentRouterServiceFactory;
+import com.chh.autosense.ai.factory.IntentPlannerServiceFactory;
 import com.chh.autosense.ai.factory.EnhancedAnswerFactory;
-import com.chh.autosense.ai.model.enums.CapabilityIntent;
+import com.chh.autosense.domain.enums.PlanStepType;
 import com.chh.autosense.core.session.memory.ConversationHistorySnapshot;
 import com.chh.autosense.support.LogCaptureSupport;
 import com.chh.autosense.utils.AiServiceValidator;
@@ -37,7 +37,7 @@ class AiServiceAssemblyTest {
     private final ObjectMapper json = new ObjectMapper();
     private final PromptInputEncoder encoder = new PromptInputEncoder();
     private WireMockServer server;
-    private IntentRouterServiceFactory routerFactory;
+    private IntentPlannerServiceFactory routerFactory;
     private EnhancedAnswerFactory analysisFactory;
     private DiagnosisReasonerServiceFactory reasonerFactory;
     private DirectAnswerServiceFactory answerFactory;
@@ -51,13 +51,11 @@ class AiServiceAssemblyTest {
                 .baseUrl(server.baseUrl() + "/v1").apiKey("test-only-key")
                 .modelName("configured-model").timeout(Duration.ofSeconds(2))
                 .logRequests(false).logResponses(false).build();
-        routerFactory = new IntentRouterServiceFactory();
-        ReflectionTestUtils.setField(routerFactory, "chatModel", chatModel);
+        routerFactory = new IntentPlannerServiceFactory(chatModel);
         routerFactory.validate();
         analysisFactory = new EnhancedAnswerFactory(chatModel, new dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<>(), new com.chh.autosense.support.DeterministicEmbeddingModel(), KnowledgeConfigurationTest.properties(Map.of()), com.chh.autosense.support.KnowledgeFixtures.catalog(), encoder);
         analysisFactory.validate();
-        reasonerFactory = new DiagnosisReasonerServiceFactory();
-        ReflectionTestUtils.setField(reasonerFactory, "chatModel", chatModel);
+        reasonerFactory = new DiagnosisReasonerServiceFactory(chatModel);
         reasonerFactory.validate();
         answerFactory = new DirectAnswerServiceFactory(streamingChatModel);
         answerFactory.validate();
@@ -94,7 +92,7 @@ class AiServiceAssemblyTest {
     }
 
     @Test void adapterLogsRealProviderStatusAndOutputParsingWithoutLeakingBodies() throws Exception {
-        var adapter = new com.chh.autosense.core.routing.LangChain4jIntentClassifier(routerFactory, encoder);
+        var adapter = new com.chh.autosense.graph.node.RealWorkflowActions(routerFactory, new com.chh.autosense.core.session.memory.GraphChatMemoryAdapter(), encoder, null, null, null, null);
         var history = new ConversationHistorySnapshot(1, 2, List.of());
         try (var logs = new LogCaptureSupport()) {
             for (int status : new int[]{401, 429, 503}) {
@@ -102,8 +100,8 @@ class AiServiceAssemblyTest {
                 logs.clear();
                 server.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
                         .willReturn(aResponse().withStatus(status).withBody("secret-provider-body")));
-                assertThatThrownBy(() -> adapter.classify("secret-question", history))
-                        .isInstanceOf(com.chh.autosense.exception.ApiException.class);
+                assertThatThrownBy(() -> adapter.plan(plannerState(), Duration.ofSeconds(2)))
+                        .isInstanceOf(com.chh.autosense.graph.node.StepFailure.class);
                 assertThat(logs.rendered()).contains("AI call started", "phase=MODEL_INVOCATION",
                                 "AI call failed", "httpStatus=" + status, "rootCauseType=")
                         .doesNotContain("secret-", "test-only-key", "AI call completed");
@@ -111,13 +109,13 @@ class AiServiceAssemblyTest {
             server.resetAll();
             logs.clear();
             reply("secret-invalid-model-output");
-            assertThatThrownBy(() -> adapter.classify("secret-question", history))
-                    .isInstanceOf(com.chh.autosense.exception.ApiException.class);
+            assertThatThrownBy(() -> adapter.plan(plannerState(), Duration.ofSeconds(2)))
+                    .isInstanceOf(com.chh.autosense.graph.node.StepFailure.class);
             assertThat(logs.rendered()).contains("reasonCode=MODEL_OUTPUT_UNPARSEABLE")
                     .doesNotContain("secret-", "AI call completed");
             server.resetAll();
             logs.clear();
-            assertThatThrownBy(() -> adapter.classify(null, history)).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> adapter.plan(null, Duration.ofSeconds(2))).isInstanceOf(RuntimeException.class);
             assertThat(logs.rendered()).contains("phase=INPUT_ENCODING", "reasonCode=INPUT_ENCODING");
             server.verify(0, postRequestedFor(urlPathEqualTo("/v1/chat/completions")));
         }
@@ -130,10 +128,10 @@ class AiServiceAssemblyTest {
                 List.of(new ConversationHistorySnapshot.Entry(2, "USER", prior)));
         String historyJson = encoder.history(history);
         String textJson = encoder.text(current);
-        reply("{\"outcome\":\"SINGLE\",\"intent\":\"KNOWLEDGE\",\"diagnosisMode\":null,\"targetHint\":null,\"clarifyQuestion\":null,\"requiresKnowledgeBase\":false}");
-        assertThat(routerFactory.intentRouterService().classify(historyJson, textJson).intent())
-                .isEqualTo(CapabilityIntent.KNOWLEDGE);
-        assertRequest("intent-router.txt", current, prior);
+        reply("{\"outcome\":\"PLAN\",\"steps\":[{\"stepId\":\"s1\",\"type\":\"KNOWLEDGE_CONSULT\",\"instruction\":\"answer\",\"requiresKnowledgeBase\":false}]}");
+        assertThat(routerFactory.intentPlannerService().plan(historyJson, textJson).proposal().steps().getFirst().type())
+                .isEqualTo(PlanStepType.KNOWLEDGE_CONSULT);
+        assertRequest("intent-planner.txt", current, prior);
         reply("{\"deviceType\":\"smart_bulb\",\"symptom\":\"dark\",\"reproduction\":null,\"sufficient\":true,\"clarifyQuestion\":null}");
         assertThat(analysisFactory.problemAnalysisService().analyze(historyJson, textJson).sufficient()).isTrue();
         assertRequest("problem-analysis.txt", current, prior);
@@ -171,27 +169,6 @@ class AiServiceAssemblyTest {
         assertThatThrownBy(() -> failed.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(RuntimeException.class);
     }
 
-    @Test void realRouterProxyParsesKnowledgeFlagAndValidatorRejectsMissingOrContradictoryFlags() throws Exception {
-        var validator = new com.chh.autosense.core.routing.RoutingDecisionValidator();
-        for (boolean required : new boolean[]{false, true}) {
-            reply("{\"outcome\":\"SINGLE\",\"intent\":\"KNOWLEDGE\",\"requiresKnowledgeBase\":" + required + "}");
-            var decision = routerFactory.intentRouterService().classify("[]", encoder.text("question"));
-            assertThat(validator.validate(decision).requiresKnowledgeBase()).isEqualTo(required);
-            assertThat(decision.intent()).isEqualTo(CapabilityIntent.KNOWLEDGE);
-        }
-        reply("{\"outcome\":\"SINGLE\",\"intent\":\"DEVICE_QUERY\",\"requiresKnowledgeBase\":null}");
-        var query = routerFactory.intentRouterService().classify("[]", encoder.text("question"));
-        assertThat(validator.validate(query).intent()).isEqualTo(CapabilityIntent.DEVICE_QUERY);
-        for (String invalid : List.of(
-                "{\"outcome\":\"SINGLE\",\"intent\":\"KNOWLEDGE\"}",
-                "{\"outcome\":\"SINGLE\",\"intent\":\"DEVICE_QUERY\",\"requiresKnowledgeBase\":true}")) {
-            reply(invalid);
-            var decision = routerFactory.intentRouterService().classify("[]", encoder.text("question"));
-            assertThat(validator.validate(decision).outcome())
-                    .isEqualTo(com.chh.autosense.ai.model.enums.RoutingOutcome.CLARIFY);
-        }
-    }
-
     @Test void resourceFailuresPreventPublishingBeforeAnyModelRequest() {
         try (var logs = new LogCaptureSupport()) {
             assertThatThrownBy(() -> AiServiceValidator.validateServices(List.of(MissingResource.class)))
@@ -209,7 +186,7 @@ class AiServiceAssemblyTest {
         String call(@V("history") String history, @V("text") String text);
     }
     public interface InlineResource {
-        @SystemMessage(value = "secret-inline", fromResource = "/prompt/intent-router.txt")
+        @SystemMessage(value = "secret-inline", fromResource = "/prompt/intent-planner.txt")
         @UserMessage(fromResource = "/prompt/conversation-input.txt")
         String call(@V("history") String history, @V("text") String text);
     }
@@ -222,6 +199,11 @@ class AiServiceAssemblyTest {
         assertThat(encoder.diagnostics(null)).isEqualTo("{}");
         assertThat(json.writeValueAsString("{{text}}")).contains("{{text}}");
         assertThat(encoder.text("{{text}}")).contains("\\u007b").doesNotContain("{{text}}");
+    }
+
+    private com.chh.autosense.graph.state.AssistantState plannerState() {
+        return new com.chh.autosense.graph.state.AssistantState(com.chh.autosense.graph.state.AssistantState.initial(
+                new com.chh.autosense.graph.state.AssistantState.RequestContext("request", 1, 1, "secret-question")));
     }
 
     private void reply(String output) throws Exception {

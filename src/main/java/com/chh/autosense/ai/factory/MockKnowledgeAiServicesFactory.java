@@ -37,7 +37,15 @@ public class MockKnowledgeAiServicesFactory {
                     String text = ((UserMessage) request.messages().getLast()).singleText();
                     var input = json.readTree(text.substring(0, text.lastIndexOf("}") + 1));
                     Map<String, Object> output = new LinkedHashMap<>();
-                    if (input.has("evidence")) {
+                    boolean planner = request.messages().stream().filter(m -> m instanceof dev.langchain4j.data.message.SystemMessage)
+                            .map(m -> ((dev.langchain4j.data.message.SystemMessage) m).text()).anyMatch(t -> t.contains("AutoSense intent planner"));
+                    if (planner) {
+                        output = MockPlanResponses.plan(input.path("text").asText());
+                    } else if (input.has("diagnostics")) {
+                        output.put("problemSummary", "设备故障诊断");
+                        output.put("conclusionText", "本地模拟诊断：请结合本步骤提供的证据和知识资料核对原因，未执行任何设备操作。");
+                        output.put("likelyAutoFixable", false);
+                    } else if (input.has("evidence")) {
                         var sources = new LinkedHashSet<String>();
                         input.path("evidence").forEach(e -> sources.add(e.path("sourceId").asText()));
                         if (sources.isEmpty()) throw new IllegalStateException("Mock enhanced answer requires evidence");

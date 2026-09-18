@@ -24,5 +24,17 @@ public class RepairActionLog {
     private String params;
     private String result;
     private String message;
+    private String requestId;
+    private String stepId;
+    private String commandExecutionId;
+    private String attemptId;
+    private Long actorUserId;
+    private String eventType;
+    private String operationKind;
+    private Long eventSequence;
+    private String eventKey;
+    private String resultCode;
+    private Long chatMessageRef;
+    private Integer schemaVersion;
     private LocalDateTime createdAt;
 }

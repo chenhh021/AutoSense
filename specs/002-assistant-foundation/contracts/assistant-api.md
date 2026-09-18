@@ -1,197 +1,83 @@
-# API Contract: 公共会话与流式响应
+# API Contract: Graph 输出、确认与恢复
 
-**Date**: 2026-09-07
-**Feature**: [002](../spec.md)
-**Status**: 保持既有外形的目标契约；标注为新增的状态/错误与一致性行为尚待实施。URL相对应用地址，公共前缀为 /api/v1。
+**Date**: 2026-09-15
+**Status**: 目标设计，未实施；旧客户端兼容桥与新 WorkflowEvent 同时规划。
+**References**: [State](../data-model.md)、[Graph](graph-contract.md)。
 
-## 1. 接口清单
+## 1. 会话与工作流入口
 
-所有端点要求有效Bearer身份，且只允许访问本人会话。
+所有接口要求 Bearer 身份并校验本人会话及 workflow。conversationId 对应既有 sessionId，不引入新会话命名空间。
+conversation逻辑复用repair_session，chat_message沿用原表；workflow_execution独立于长期会话，command_execution独立于工作流步骤的展示状态。审计逻辑audit_event复用repair_action_log，对外API不暴露物理表或新增同义端点。
+移植完成后SessionController不再注入或调用SessionOrchestrator。执行入口由WorkflowExecutionService校验接纳并返回graph流，GET/列表/消息历史/删除由新会话读写服务承接；保留API外形不等于保留旧编排实现。任何失败或旧confirmRepair兼容处理均不能回退旧runner。
 
-| 方法及路径 | 请求 | 成功响应 |
-| --- | --- | --- |
-| POST /sessions | {problem:string}，非空白 | 200 text/event-stream |
-| POST /sessions/{sessionId}/messages | {content:string或null,confirmRepair:boolean或null} | 200 text/event-stream |
-| GET /sessions/{sessionId} | 无 | 200 SessionResponse |
-| GET /sessions | 无 | 200 {sessions:SessionListItemView[]} |
-| GET /sessions/{sessionId}/messages | 无 | 200 ChatMessageView[] |
+| 方法与路径（前缀 /api/v1） | 输入 / 响应 |
+| --- | --- |
+| POST /sessions | 保留 {problem} → SSE；服务端生成并持久化 workflow requestId |
+| POST /sessions/{sessionId}/messages | 保留 {content,confirmRepair}，新增可选 {inputRequestId,expectedVersion} → SSE；新问题生成新workflow，WAITING_INPUT回复按追问标识续接；旧确认按下述兼容边界处理 |
+| GET /sessions、GET /sessions/{sessionId}、GET /sessions/{sessionId}/messages | 保留现有外形和语义，只读补查，不隐式执行或恢复 |
+| DELETE /sessions/{sessionId} | 保留归属检查；非终止或结果不确定的 workflow 返回冲突，不悄然丢弃在途操作 |
+| GET /sessions/{sessionId}/workflows/{requestId} | WorkflowView，包含安全步骤列表、当前步骤、进度、已保存结果、批准提示和可恢复状态 |
+| POST /sessions/{sessionId}/workflows/{requestId}/approval | {stepId,approvalId,approved,expectedVersion} → SSE |
+| POST /sessions/{sessionId}/workflows/{requestId}/resume | {expectedVersion} → SSE；必须是本人显式继续 |
+| POST /sessions/{sessionId}/workflows/{requestId}/cancel | {expectedVersion} → SSE；记录取消与剩余未执行，不撤回已发生效果 |
 
-不新增订阅端点、公开路由端点或自动事件重放。公开请求不接受用户自行指定的身份、可信能力或已验证设备归属。
+用户不得提交 AgentState、PlanContext、permission、operation key、目标覆盖字段或新的可信 userId。requestId 路径只定位服务端已保存的 workflow，不能创建任意 thread。
+approvalId 绑定已展示步骤的规范化目标/动作/参数 hash 和有效期。重复相同决定返回已有决定/当前状态，不重复开始执行；不同决定或过期 version 返回明确冲突。
+resume 校验尚未终止、待恢复、归属、版本、claim；重复/并发请求至多取得一个执行权，返回已有状态或 WORKFLOW_BUSY，绝不同时重放。已终止请求仅返回终态，不重启。
+服务重启后 approval 只能保存决定，不能代替显式 resume；未重启且正常 WAITING_APPROVAL 时批准可直接恢复该步骤。
+WAITING_INPUT回复须匹配当前inputRequestId/版本，只保存一次可见消息并恢复对应澄清节点。旧客户端未传inputRequestId时，仅在会话有唯一当前追问且未重启时由服务端映射；存在歧义时拒绝猜测。尚无正式计划时允许据澄清重新规划，已有正式计划时仅补齐运行时输入，不增删步骤。重启后的回答只保存，显式resume后继续。
+旧 confirmRepair 仅在服务端能唯一对应一个仍有效的 CONTROL 批准请求时映射，不能用于 Query 批准、条件整体授权或重启恢复；映射不明确时要求使用带 approvalId 的新接口。
+既有 SessionResponse 的 sessionId/status/reply/awaitingInput/conclusion 不删除；新增 workflow 可选投影（requestId、status、currentStep、progress、version、canResume）。旧数据 workflow=null。
+新工作流状态同时映射到旧会话状态：执行映射 DISPATCHING/ANSWERING，等待映射既有等待语义，成功映射 COMPLETED_ANSWERED，失败映射 FAILED_REQUEST；精确状态在 workflow 中提供，不能把 stub 控制显示为 FIXED。
 
-POST追加消息至少包含非空content或显式confirmRepair；空业务输入返回BAD_REQUEST。confirmRepair保留兼容，但仅在005确认上下文有效时可能被解释为确认，不授予直接调用旧修复runner的权限。
+## 2. OutputContext → WorkflowEvent → SSE
 
-## 2. 请求例子
-
-新建会话：
-
-```json
-{
-  "problem": "我的客厅灯现在亮度多少"
-}
-```
-
-新问题/澄清回复：
-
-```json
-{
-  "content": "先查询亮度",
-  "confirmRepair": null
-}
-```
-
-既有确认形状仍可被解析：
-
-```json
-{
-  "content": null,
-  "confirmRepair": true
-}
-```
-
-最后一个请求不表示002已完成安全控制功能。未接入005、无有效待确认请求、旧上下文失效或操作内容变化时不得执行；返回明确失败或重新澄清。控制确认ID和防重放细节由005后续契约定义。
-
-## 3. 保持现有JSON字段
-
-**SessionResponse**：
+OutputContext 保持 type/code/message/data 四字段。data 是白名单 DTO，包含 eventId、sequence、requestId、conversationId、stepId、stepType、status、progress、version、payload（按 type 定义）；不含 messages、prompt、原始候选计划、审批安全凭证、原始异常。
+WorkflowEvent 是不可变公开 envelope，使用同样四字段；Controller 消费 LangGraph4j stream 的中间 state，调用纯投影器转换，不序列化 AgentState 本身。
+同一 OutputContext 在多个 node snapshot 重复出现时按 eventId 去重；每次实际更新必须产生新 sequence。终态/等待/步骤成功只在提交后可见。非持久 token 使用本次流临时序列，不能冒充审计提交序列。
+持久公开事件的eventId由requestId与审计event_sequence组成，内部审计导致的序列间隙允许存在。WorkflowEvent仅为公开DTO，不对应新增workflow_event表，也不直接序列化repair_action_log。控制步骤结果的payload可包含commandExecutionId、status和resultCertainty供关联补查，不能暴露operationKey、批准凭证或原始命令参数。完整可见文本由chat_message保存，审计以引用关联，重复恢复不新增相同输出。
+新增 SSE event=workflow，data=WorkflowEvent；同时保留五类 legacy 事件：
+- TEXT → token {text}。
+- STATUS → status {sessionId,status}。
+- AWAITING → awaiting {sessionId,prompt}，随后关闭。
+- CONCLUSION → conclusion（原 ConclusionDto），随后关闭。
+- ERROR → error {code,message,sessionId}，随后关闭。
+- STEP_RESULT → workflow 事件及简短 token 说明，不关闭流；只有整计划汇总才发送 conclusion。
+兼容映射应先发 workflow，最后发会关闭连接的 legacy 事件；不能在一个步骤结束时误关整个计划。
+例如：
 
 ```json
 {
-  "sessionId": 101,
-  "status": "CLARIFYING",
-  "reply": "你想先查询设备状态，还是提出控制请求？",
-  "awaitingInput": true,
-  "conclusion": null
-}
-```
-
-字段固定为sessionId、status、reply、awaitingInput、conclusion，**没有device字段**。reply是当前可见回复/错误说明，不是内部路由JSON。waiting/terminal应与状态机一致。
-
-**ConclusionDto**：
-
-```json
-{
-  "type": "ANSWERED",
-  "summary": "AutoSense可帮助咨询知识、查询本人设备、诊断问题和安全控制设备。",
-  "preDiagnostics": null,
-  "postDiagnostics": null,
-  "manualSteps": null,
-  "afterSales": null
-}
-```
-
-旧type值保持可读：FIXED、UNFIXED_MANUAL_GUIDE、UNFIXED_AFTERSALES、DEVICE_UNREACHABLE、ANSWERED、AFTERSALES_PROVIDED。新增ERROR用于FAILED_REQUEST的GET补查投影，不伪装成ANSWERED；002不会把测试分流结果标记FIXED。
-
-**SessionListItemView**：
-
-```json
-{
-  "sessions": [
-    {
-      "sessionId": 101,
-      "status": "CLARIFYING",
-      "preview": "我的客厅灯现在亮度多少",
-      "createdAt": "2026-09-07T10:00:00",
-      "updatedAt": "2026-09-07T10:00:02"
-    }
-  ]
-}
-```
-
-列表仅本人会话，按更新时间倒序；preview沿用当前结论或初始问题预览。时间字符串延续现有序列化，不借本次拆分重写旧时间数据。
-
-**ChatMessageView[]**：
-
-```json
-[
-  {
-    "role": "USER",
-    "content": "我的客厅灯现在亮度多少",
-    "createdAt": "2026-09-07T10:00:00"
+  "type": "STEP_RESULT",
+  "code": "STEP_COMPLETED",
+  "message": "设备查询已完成。",
+  "data": {
+    "eventId": "workflow-uuid:7",
+    "sequence": 7,
+    "requestId": "workflow-uuid",
+    "conversationId": 101,
+    "stepId": "s1",
+    "stepType": "DEVICE_QUERY",
+    "status": "RUNNING",
+    "progress": {"total": 2, "completed": 1, "skipped": 0, "notExecuted": 0},
+    "version": 8,
+    "payload": {"brightness": 20, "source": "DEVICE_QUERY"}
   }
-]
+}
 ```
 
-字段为role、content、createdAt；内部messageId/round不因此暴露为新公共字段。消息按既有时间顺序并以id稳定打破同时间排序；仅当前用户可见消息。
+暂停/结束才关闭 SSE；断线不重放事件，GET 补查已持久化状态与结果。SSE 断开不是批准或取消，当前调用可提交结果，但后续任何未确认步骤仍暂停；服务重启后必须显式 resume。
+AgentState 中继承的旧输出、框架 START/END 通知及内部流元素不得重复发给前端。graph 技术异常由服务端收敛为安全失败投影；持久化提交不确定时可发送一次 INTERNAL_ERROR 并关闭，但不宣称保存成功。
 
-## 4. 五类SSE事件
+## 3. 错误与状态
 
-| event | data | 结束流 |
-| --- | --- | --- |
-| token | {text:string} | 否 |
-| status | {sessionId:number,status:string} | 否 |
-| awaiting | {sessionId:number,prompt:string} | 是 |
-| conclusion | 直接为ConclusionDto，无额外sessionId包裹 | 是 |
-| error | {code:string,message:string,sessionId:number} | 是 |
+HTTP 接受前：401 身份失效；403 归属拒绝；404 会话/工作流不存在；400 非法 DTO；409 VERSION_CONFLICT / WORKFLOW_BUSY / APPROVAL_SCOPE_MISMATCH / WORKFLOW_NOT_RESUMABLE。
+SSE 接受后沿用 HTTP 200 + error，code 可为 PLAN_INVALID、AI_SERVICE_UNAVAILABLE、CAPABILITY_NOT_AVAILABLE、APPROVAL_REJECTED、REQUEST_TIMEOUT、DEVICE_RESULT_UNKNOWN、CHECKPOINT_UNAVAILABLE、INTERNAL_ERROR。
+参数/计划歧义输出 WAITING_INPUT 与脱敏澄清（payload含inputRequestId），在AwaitInput中断而非Reject终止；明确计划安全违规拒绝执行。OUT_OF_SCOPE输出范围说明并正常结束，空步骤不是非法计划。设备业务错误与明确 HTTP 4xx/5xx 不是 timeout，不重试。
+确认过期输出新的 WAITING_APPROVAL；权限已撤销则拒绝并停止。步骤失败及剩余 NOT_EXECUTED 与已完成结果一并可补查，不能显示为全部成功。
 
-sessionId尚不存在时，error事件继续使用-1；普通HTTP错误的可空sessionId保持原语义。不要在用户输出中暴露提示词、原始分类JSON、内部分析或供应商异常正文。
+## 4. 骨架与前端验收边界
 
-新增公共流程例子：
-
-```text
-event: status
-data: {"sessionId":101,"status":"ROUTING"}
-
-event: status
-data: {"sessionId":101,"status":"DISPATCHING"}
-
-event: status
-data: {"sessionId":101,"status":"FAILED_REQUEST"}
-
-event: error
-data: {"code":"CAPABILITY_NOT_AVAILABLE","message":"该能力暂未接入，请稍后再试。","sessionId":101}
-
-```
-
-上例说明已完成分流但业务处理器未注册，不能解释为设备查询成功。只有测试接收器会返回明确测试标记，生产不得安装该处理器。
-
-`awaiting` 和成功 `conclusion` MUST 在对应业务收尾事务提交成功后发送。已接纳请求发生模型或能力处理失败时，应先持久化失败说明、状态和追溯，再发送对应 `error`。
-
-未接纳请求的错误，例如 `BAD_REQUEST`、归属校验失败和 `SESSION_BUSY`，MUST NOT 以本请求的持久化成功为发送前提，也不得新增用户消息或修改其他处理中请求。
-
-写入或提交异常导致收尾无法确认时，连接仍可写则至多发送一次脱敏的 `INTERNAL_ERROR`，随后关闭本次流并停止后续输出及普通完成回调。不得发送未经确认的成功结论或状态，不得凭错误通知额外清理处理指针、重放模型调用或执行设备操作。
-
-`error` 表示本次请求发生错误，不自动证明数据库已经保存 `FAILED_REQUEST`。提交结果不确定时，以数据库实际记录为准；后续补查与到期恢复继续核对消息指针和截止条件。连接已经断开时只清理连接资源，不重放事件。
-
-## 5. 错误分层
-
-**接受SSE之前与普通JSON接口**：
-
-- 认证失败：401 UNAUTHORIZED，过滤器错误体保持code/message。
-- 普通用户访问管理员功能：403 FORBIDDEN。
-- JSON格式/绑定/创建problem非空校验错误：400 BAD_REQUEST。
-- GET查询不存在会话：404 SESSION_NOT_FOUND；他人会话：403 DEVICE_FORBIDDEN。
-- 公共异常体继续使用code、message、可空sessionId；不为统一格式破坏现有安全过滤器形状。
-
-**SSE已接受之后**：
-
-| code | 来源 | 状态/副作用 |
-| --- | --- | --- |
-| BAD_REQUEST | 空业务输入或当前状态不能接纳 | 不创建无效消息、不执行设备 |
-| DEVICE_FORBIDDEN / SESSION_NOT_FOUND | 异步归属检查 | 不泄露会话内容 |
-| SESSION_BUSY（新增） | 同会话已有处理中消息 | 只拒绝本请求，不改另一消息的状态/指针 |
-| AI_SERVICE_UNAVAILABLE（新增） | 模型调用传输/服务失败 | 当前处理FAILED_REQUEST，保存脱敏说明 |
-| CAPABILITY_NOT_AVAILABLE（新增） | 能力未注册/不可续办 | 当前处理FAILED_REQUEST，无旧流程回退 |
-| REQUEST_TIMEOUT（新增） | 公共处理总截止 | 原子结清旧处理，不重新执行 |
-| CONTEXT_EXPIRED（新增） | 旧等待上下文无法安全恢复 | 澄清或FAILED_REQUEST，不能恢复控制授权 |
-| INTERNAL_ERROR | 其他内部失败/提交失败 | 不虚报成功，不覆盖另一消息 |
-
-这些错误仍是HTTP 200流中的error，不把其业务含义直接写成HTTP 409/422/503。结构非法的路由结果优先走CLARIFYING+awaiting，而非把所有情况当成模型网络错误。
-
-## 6. 多轮、恢复与兼容
-
-- 已结束会话可在同sessionId发起新轮，重新路由，不沿用旧意图或确认。
-- 公共入口开始处理前再次校验服务端身份/会话归属；各能力读取/操作设备前重新校验自己的前置条件。
-- 同会话一条处理中消息；忙请求不新增USER消息。当前请求有独立messageId用于回调约束。
-- 当前结果、完整可见历史和追溯保存后，才清旧投影或释放处理权。部分流文本不等于完整已保存回答。
-- 活跃请求到期主动按同一消息ID及已过期条件结清FAILED_REQUEST并关闭流；进程中断后GET或后续POST补偿结清已过期处理。两种恢复均不得覆盖新消息指针，不重发模型请求或设备命令。
-- 公开API没有新增通用幂等键；客户端重连先GET补查，不假定再次POST相同文本会自动去重。005另行定义设备控制请求的幂等边界。
-- 新增DISPATCHING、FAILED_REQUEST及ERROR结论是枚举值扩展，既有字段及旧状态保持可读。客户端应显示未知状态的通用进行/失败说明。
-
-
-## 7. 对象与日志兼容
-
-CreateSessionRequest、MessageRequest、SessionResponse、ConclusionDto、SseEvent 保持 record；SessionListItemView/ChatMessageView 迁入 domain/vo 后仍为 record，组件、null、时间和五类 SSE JSON 形状不变。SseEventStream 是有生命周期的流封装，不能为了统一形式改成数据 record。
-
-[公共日志契约](logging-contract.md)只定义服务端英文日志；用户文本、错误说明和澄清语言保持原接口语义。requestId/messageId/round/MDC不新增到公开JSON或SSE字段。异步接受、连接结束与业务提交分别记录，业务结果以已持久化事实为准，不能因Controller返回emitter就输出成功日志。
-
-验证既有JSON/Bean Validation兼容，并在并发与SSE异常测试中核对日志关联、无完整会话内容、无晚到回调冒充新轮或事务回滚后的成功记录。
+stub 事件和结果明确 code=STUB_*、payload.simulated=true；真实模式未接入能力应返回 CAPABILITY_NOT_AVAILABLE，不能用 stub 冒充真实设备结果。
+旧 ChatPage 只识别五类事件，兼容桥保持基本文本可用；步骤卡片、Query 批准、requestId/version 传递及 resume/cancel 按本契约增量适配。API 骨架可先用 curl 完成验收，不把当前前端视为已支持这些交互。
+用户点击一次步骤批准不批准其后控制/复检步骤。重新连接只能补查，必须由用户显式动作调用 resume。

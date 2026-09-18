@@ -23,7 +23,7 @@ public abstract class AbstractDeviceAdapter implements DeviceAdapter {
         this.registry = registry;
     }
 
-    /** 探测(免确认,FR-008):读取设备 state。 */
+    /** 在已批准的查询步骤中读取设备 state。 */
     @Override
     public Map<String, Object> getDiagnostics(Device device) {
         return client.getDeviceState(device.getSimulatorDeviceId());

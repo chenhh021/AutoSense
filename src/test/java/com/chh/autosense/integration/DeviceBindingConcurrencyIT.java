@@ -64,7 +64,7 @@ class DeviceBindingConcurrencyIT extends AbstractIntegrationIT {
         String unknownSn = "ZZZZ999000001";
         ResponseEntity<JsonNode> resp = bindDevice("user-410", unknownSn, "未知设备");
         assertThat(resp.getStatusCode().value()).as("响应: %s", resp.getBody()).isEqualTo(404);
-        assertThat(resp.getBody().path("code").asText()).isEqualTo("DEVICE_NOT_FOUND");
+        assertThat(resp.getBody().path("data").path("code").asText()).isEqualTo("DEVICE_NOT_FOUND");
 
         Integer rows = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM device WHERE sn = ?", Integer.class, unknownSn);
@@ -86,8 +86,8 @@ class DeviceBindingConcurrencyIT extends AbstractIntegrationIT {
 
         // 原绑定行保持:归属/名称不变,仍只有一行
         Map<String, Object> row = jdbcTemplate.queryForMap(
-                "SELECT userId, name FROM device WHERE id = ?", deviceId);
-        assertThat(((Number) row.get("userId")).longValue()).isEqualTo(420L);
+                "SELECT user_id, name FROM device WHERE id = ?", deviceId);
+        assertThat(((Number) row.get("user_id")).longValue()).isEqualTo(420L);
         assertThat(row.get("name")).isEqualTo("原始名称");
         Integer rows = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM device WHERE sn = ?", Integer.class, sn);

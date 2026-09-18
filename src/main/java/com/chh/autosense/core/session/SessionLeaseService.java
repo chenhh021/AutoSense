@@ -1,6 +1,6 @@
 package com.chh.autosense.core.session;
 
-import com.chh.autosense.config.AssistantProperties;
+import com.chh.autosense.config.GraphProperties;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -18,9 +18,9 @@ public class SessionLeaseService {
     private final StringRedisTemplate redis;
     private final Duration ttl;
 
-    public SessionLeaseService(StringRedisTemplate redis, AssistantProperties properties) {
+    public SessionLeaseService(StringRedisTemplate redis, GraphProperties properties) {
         this.redis = redis;
-        this.ttl = Duration.ofSeconds(properties.sessionLeaseSeconds());
+        this.ttl = Duration.ofSeconds(Math.min(30, properties.executionSliceTimeoutSeconds()));
     }
 
     /** Owner stays private and is never a logging or authorization value. */

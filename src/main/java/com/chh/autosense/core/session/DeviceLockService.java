@@ -44,8 +44,12 @@ public class DeviceLockService {
      * 尝试加锁;成功返回 true,设备已有进行中会话返回 false。
      */
     public boolean tryLock(Long deviceId, Long sessionId) {
+        return tryLock(deviceId, String.valueOf(sessionId));
+    }
+
+    public boolean tryLock(Long deviceId, String owner) {
         Boolean ok = redis.opsForValue()
-                .setIfAbsent(key(deviceId), String.valueOf(sessionId), TTL);
+                .setIfAbsent(key(deviceId), owner, TTL);
         return Boolean.TRUE.equals(ok);
     }
 
@@ -66,8 +70,12 @@ public class DeviceLockService {
 
     /** 原子 owner 校验释放:仅锁持有者可释放,他人释放无效。 */
     public void release(Long deviceId, Long sessionId) {
+        release(deviceId, String.valueOf(sessionId));
+    }
+
+    public void release(Long deviceId, String owner) {
         Long ok = redis.execute(RELEASE_IF_OWNER, List.of(key(deviceId)),
-                String.valueOf(sessionId));
+                owner);
         if (!Long.valueOf(1).equals(ok)) {
             log.warn("Device lock conflict: operation=release, result=NOT_OWNER_OR_EXPIRED");
         }

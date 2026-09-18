@@ -28,6 +28,7 @@ public class RepairSession {
     private String conclusionExtra;
     private Long processingMessageId;
     private LocalDateTime processingDeadlineAt;
+    private String activeWorkflowRequestId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
