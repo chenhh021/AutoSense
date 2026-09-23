@@ -36,10 +36,14 @@ const labels: Record<string, string> = {
   WAITING_APPROVAL: '等待确认', WAITING_INPUT: '等待补充信息', WAITING_RESUME: '等待继续', RETRYING: '超时重试中',
   COMPLETED: '已完成', SKIPPED: '条件不满足，已跳过', NOT_EXECUTED: '未执行', FAILED: '已失败', REJECTED: '已拒绝', CANCELLED: '已取消',
   setBrightness: '设置亮度', setColorTemperature: '设置色温', setPower: '设置电源', state: '读取状态', list: '查询设备列表', diagnostic_snapshot: '采集诊断信息',
+  MOCK: '本地模拟数据', SIMULATOR: '设备数据', REAL: '设备数据', FULL_GET_SNAPSHOT: '读取该设备全部可查询属性',
+  mock: '本地生成', real: '外部设备服务',
 }
 const fieldLabels: Record<string, string> = {
   name: '设备名称', deviceNames: '设备名称', deviceRef: '设备编号', deviceRefs: '设备范围', deviceType: '设备类型', model: '型号', action: '操作',
   brightness: '亮度', colorTemperature: '色温', power: '电源', fields: '查询字段', clarification: '补充信息',
+  sn: '设备 SN', getScope: '完整读取范围', capabilityHash: '能力定义版本', runtimeSource: '数据来源', snapshotKind: '读取方式',
+  runtimeProvider: '查询方式',
 }
 const failureLabels: Record<string, string> = {
   APPROVAL_REJECTED: '用户拒绝执行，后续步骤已停止。', DEVICE_RESULT_UNKNOWN: '命令执行结果尚不确定，系统不会自动重新下发。',
@@ -49,11 +53,53 @@ const failureLabels: Record<string, string> = {
   INVALID_COMMAND_PARAMETERS: '设备操作参数无效。', COMMAND_NOT_ALLOWED: '该型号不允许此操作。', DEVICE_BUSY: '设备正由其他请求操作。',
   CANCELLED: '计划已取消，已完成结果仍然保留。', PLAN_INVALID: '无法生成有效计划，请重新描述需求。',
   WORKFLOW_CANCELLED: '计划已取消，已完成结果仍然保留。',
+  DEVICE_NOT_FOUND: '未找到此设备。', DEVICE_FORBIDDEN: '无权访问此设备。', DEVICE_OFFLINE: '设备离线，未读取运行参数。',
+  DEVICE_CAPABILITY_NOT_CONFIGURED: '该型号尚未配置设备能力。', DEVICE_CAPABILITY_UNAVAILABLE: '设备能力服务暂时不可用。',
+  DEVICE_CAPABILITY_INVALID: '该型号的能力定义无效。', DEVICE_ONLINE_INFO_INVALID: '设备运行信息与该型号的能力定义不一致。',
+  DEVICE_CONTEXT_TOO_LARGE: '设备列表超出本次规划容量，请联系管理员调整配置。',
+  DEVICE_UNREACHABLE: '外部服务未能找到可访问的设备，请检查设备运行及连接状态。',
+  DEVICE_SERVICE_UNAVAILABLE: '外部设备服务未能完成请求，请检查服务状态。',
+  MOCK_EVIDENCE_NOT_ALLOWED: '模拟数据仅供展示，需提供真实参数才能继续分析或控制。',
+  INCOMPATIBLE_WORKFLOW_VERSION: '此计划来自旧版本，可以查看历史，但无法继续执行。',
 }
 const label = (value?: string) => value ? labels[value] || value : ''
 const failure = (value?: string) => value ? failureLabels[value] || `执行未完成（${value}）` : ''
-const confirmationFields = computed(() => Object.entries(workflow.value?.approval?.parameters || {}).filter(([key]) => key !== 'bindingHash'))
+const deviceTypeLabels: Record<string, string> = {
+  AIRC: '空调', AIR_CONDITIONER: '空调', LIGHT: '智能灯泡', LITE: '智能灯泡', SMART_BULB: '智能灯泡',
+  PURI: '空气净化器', AIR_PURIFIER: '空气净化器', ROUTER: '路由器',
+}
+const confirmationDevice = computed(() => {
+  const parameters = workflow.value?.approval?.parameters || {}
+  const type = typeof parameters.deviceType === 'string' ? parameters.deviceType : ''
+  return {
+    name: parameters.name || (Array.isArray(parameters.deviceNames) ? parameters.deviceNames.join('、') : '') || '未提供',
+    type: deviceTypeLabels[type.toUpperCase()] || type || '未提供',
+    sn: parameters.sn || '未提供',
+  }
+})
+const confirmationFields = computed(() => Object.entries(workflow.value?.approval?.parameters || {})
+  .filter(([key]) => !['bindingHash', 'runtimeEndpointHash', 'runtimeSource', 'runtimeProvider', 'deviceRef', 'deviceRefs', 'name', 'deviceNames', 'deviceType', 'sn'].includes(key)))
 const showValue = (value: unknown) => typeof value === 'string' ? label(value) : Array.isArray(value) ? value.join('、') : JSON.stringify(value)
+const isMockResult = (result?: Record<string, any>) => (result?.onlineInfo?.source || result?.source) === 'MOCK'
+const attributeLabels: Record<string, string> = {
+  power: '电源', brightness: '亮度', color_temperature: '色温', online: '在线状态', signal_strength: '信号强度',
+  firmware_version: '固件版本', color: '颜色', red: '红色分量', green: '绿色分量', blue: '蓝色分量',
+  mode: '运行模式', current_temperature: '当前温度', target_temperature: '目标温度', fan_speed: '风速', swing: '扫风模式',
+  eco_mode: '节能模式', sleep_mode: '睡眠模式', compressor_status: '压缩机状态', error_code: '故障码', filter_life: '滤芯寿命',
+  pm25: 'PM2.5', air_quality: '空气质量', temperature: '温度', humidity: '湿度', motor_status: '风机状态',
+  child_lock: '童锁', display_brightness: '显示亮度',
+}
+const reasonLabels: Record<string, string> = {
+  MISSING_FIELD: '响应缺少该字段', INVALID_TYPE: '返回的数据类型不正确', INVALID_ENUM: '返回值不在允许选项内',
+  OUT_OF_RANGE: '返回值超出允许范围',
+}
+const fieldErrors = (result?: Record<string, any>) => Object.entries(result?.componentErrors || {}).flatMap(([path, reason]) => {
+  if (path === 'onlineInfoSchema' && reason === 'UNEXPECTED_FIELD') return ['响应包含型号未定义的字段，已拒绝使用这份数据。']
+  if (!path.startsWith('onlineInfo.getResults.get_properties.') || typeof reason !== 'string' || !reasonLabels[reason]) return []
+  const fields = path.slice('onlineInfo.getResults.get_properties.'.length).split('.')
+  if (!fields.every(field => attributeLabels[field])) return []
+  return [`${fields.map(field => attributeLabels[field]).join(' / ')}：${reasonLabels[reason]}`]
+})
 
 onMounted(init)
 watch(() => route.fullPath, init)
@@ -86,6 +132,7 @@ async function refresh(current = generation, history = false) {
     if (current !== generation) return
     accessDenied.value = false
     workflow.value = detail.workflow
+    simulated.value = !!detail.workflow?.steps?.some(step => step.result?.simulated === true || isMockResult(step.result))
     if (history) {
       const rows = await listMessages({ sessionId: id }) as unknown as API.ChatMessageView[]
       if (current !== generation) return
@@ -135,7 +182,7 @@ function applyWorkflow(event: API.WorkflowEvent) {
     view.conversationId = data.conversationId
     if (data.status !== 'WAITING_APPROVAL') view.approval = undefined
   }
-  if (payload.simulated === true || event.code?.startsWith('STUB_')) simulated.value = true
+  if (payload.simulated === true || isMockResult(payload) || event.code?.startsWith('STUB_')) simulated.value = true
   if (data.stepId && data.stepType) {
     const steps = view.steps ||= []
     let step = steps.find(item => item.stepId === data.stepId)
@@ -256,7 +303,7 @@ async function scrollToBottom() {
       <div><strong>执行进度</strong> <a-tag v-if="workflow" :color="workflow.status === 'FAILED' ? 'error' : 'blue'">{{ label(workflow.status) }}</a-tag>
         <span v-if="workflow?.progress?.total">{{ workflow.progress.completed || 0 }} / {{ workflow.progress.total }} 步已完成</span>
         <span v-if="workflow?.progress?.skipped"> · 已跳过 {{ workflow.progress.skipped }} 步</span>
-        <a-tag v-if="simulated" color="orange">模拟流程</a-tag>
+        <a-tag v-if="simulated" color="orange">含模拟数据</a-tag>
       </div>
       <a-space>
         <a-button size="small" :loading="loading" :disabled="sending" @click="refresh(generation, true)">刷新状态</a-button>
@@ -276,6 +323,12 @@ async function scrollToBottom() {
           <p v-if="step.resultCertainty === 'UNKNOWN'">命令结果尚不确定，不会自动重新执行。</p>
           <p v-if="step.result?.verification === 'NOT_PERFORMED'">控制已成功，尚未复检设备状态。</p>
           <p v-if="step.result?.answer" class="content">{{ step.result.answer }}</p>
+          <p v-for="detail in fieldErrors(step.result)" :key="detail">{{ detail }}</p>
+          <p v-if="step.result?.onlineInfo?.generatedAt">
+            {{ step.result.onlineInfo.source === 'MOCK' ? '生成时间' : '读取时间' }}：{{ new Date(step.result.onlineInfo.generatedAt).toLocaleString() }}
+          </p>
+          <p v-if="isMockResult(step.result)" class="mock-source">模拟数据仅供展示，不能作为真实设备诊断或控制依据。
+          </p>
         </details>
       </div>
     </div>
@@ -287,7 +340,14 @@ async function scrollToBottom() {
       <section v-if="workflow?.approval && workflow.status === 'WAITING_APPROVAL'" class="approval-card" aria-label="设备步骤确认">
         <strong>确认{{ label(workflow.approval.operation) }}</strong>
         <p>{{ workflow.approval.prompt }}</p>
-        <dl><template v-for="[key, value] in confirmationFields" :key="key"><dt>{{ fieldLabels[key] || key }}</dt><dd>{{ showValue(value) }}</dd></template></dl>
+        <p v-if="workflow.approval.parameters?.runtimeSource === 'MOCK'">本次将生成模拟参数；即使仅关注某个字段，也会读取下列完整范围。</p>
+        <p v-else-if="['REAL', 'SIMULATOR'].includes(String(workflow.approval.parameters?.runtimeSource))">本次将向设备读取下列属性，回答时仅使用与你的问题相关的信息。</p>
+        <dl>
+          <dt>设备名称</dt><dd>{{ confirmationDevice.name }}</dd>
+          <dt>设备类型</dt><dd>{{ confirmationDevice.type }}</dd>
+          <dt>设备 SN</dt><dd>{{ confirmationDevice.sn }}</dd>
+          <template v-for="[key, value] in confirmationFields" :key="key"><dt>{{ fieldLabels[key] || key }}</dt><dd>{{ showValue(value) }}</dd></template>
+        </dl>
         <p class="muted" v-if="workflow.approval.expiresAt">确认有效期至 {{ new Date(workflow.approval.expiresAt).toLocaleString() }}</p>
         <a-space><a-button type="primary" :disabled="sending || loading" @click="approve(true)">确认执行</a-button>
           <a-button :disabled="sending || loading" @click="approve(false)">拒绝执行</a-button></a-space>
@@ -325,6 +385,7 @@ details p { margin: 10px 0 0; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 12px 0; font-size: 13px; }
 dt { color: #59677a; } dd { margin: 0; overflow-wrap: anywhere; }
 .muted { color: #64748b; font-size: 12px; }
+.mock-source { color: #874d00; font-size: 13px; }
 .input-area { display: flex; align-items: flex-end; gap: 12px; }
 @media (max-width: 640px) { .chat-page { height: calc(100dvh - 120px); } .message-list { padding: 14px; } .bubble { max-width: 95%; } .workflow-header, .interaction-area { padding: 12px; } }
 </style>

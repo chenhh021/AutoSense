@@ -1,6 +1,7 @@
 package com.chh.autosense.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import com.chh.autosense.domain.enums.DeviceType;
 
 import java.util.List;
 import java.util.Map;
@@ -45,12 +46,15 @@ public record DeviceTypeRegistryProperties(Map<String, DeviceTypeSpec> deviceTyp
     }
 
     public boolean isSupported(String deviceType) {
-        DeviceTypeSpec spec = deviceTypes == null ? null : deviceTypes.get(deviceType);
+        DeviceTypeSpec spec = specOf(deviceType);
         return spec != null && spec.supported();
     }
 
     public DeviceTypeSpec specOf(String deviceType) {
-        return deviceTypes == null ? null : deviceTypes.get(deviceType);
+        if (deviceTypes == null || deviceType == null) return null;
+        DeviceTypeSpec exact = deviceTypes.get(deviceType);
+        var known = DeviceType.fromCode(deviceType);
+        return exact != null || known == null ? exact : deviceTypes.get(known.code());
     }
 
     /** 型号是否属于该类型注册表(FR-020 登记校验)。 */
@@ -79,9 +83,12 @@ public record DeviceTypeRegistryProperties(Map<String, DeviceTypeSpec> deviceTyp
         if (deviceTypes == null || simulatorTypeCode == null) {
             return Optional.empty();
         }
-        return deviceTypes.entrySet().stream()
+        var exact = deviceTypes.entrySet().stream()
                 .filter(entry -> simulatorTypeCode.equals(entry.getValue().simulatorTypeCode()))
                 .map(Map.Entry::getKey)
                 .findFirst();
+        if (exact.isPresent()) return exact;
+        var known = DeviceType.fromCode(simulatorTypeCode);
+        return known != null && deviceTypes.containsKey(known.code()) ? Optional.of(known.code()) : Optional.empty();
     }
 }

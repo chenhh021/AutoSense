@@ -51,7 +51,7 @@ public class WorkflowExecutionService {
         try {
             var data = new LinkedHashMap<>(AssistantState.initial(new RequestContext(accepted.requestId(), accepted.sessionId(), user.userId(), text)));
             var initial = new AssistantState(data); var w = initial.workflow();
-            data.put(WORKFLOW, new WorkflowContext(w.status(), 0, w.progress(), workflow.getVersion() + 1, "", "", "", "", 1, "assistant-v1", workflow.getLastEventSequence(), claim.fence()));
+            data.put(WORKFLOW, new WorkflowContext(w.status(), 0, w.progress(), workflow.getVersion() + 1, "", "", "", "", com.chh.autosense.graph.checkpoint.AssistantStateSerializer.SCHEMA_VERSION, com.chh.autosense.graph.checkpoint.AssistantStateSerializer.GRAPH_VERSION, workflow.getLastEventSequence(), claim.fence()));
             data.put(AUDIT, new AuditContext(accepted.requestId(), accepted.reportId(), accepted.messageId(), accepted.round(), List.of(), List.of()));
             var messages = new ArrayList<>(history.snapshot(user.userId(), accepted.sessionId(), accepted.messageId()).messages().stream()
                     .map(m -> new Message(m.id(), m.role(), m.content())).toList());

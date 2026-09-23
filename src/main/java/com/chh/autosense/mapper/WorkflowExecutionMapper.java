@@ -16,6 +16,9 @@ public interface WorkflowExecutionMapper extends BaseMapper<WorkflowExecution> {
     @Select("SELECT * FROM workflow_execution WHERE session_id=#{sessionId} ORDER BY created_at DESC")
     List<WorkflowExecution> forConversation(@Param("sessionId") long sessionId);
 
+    @Select("SELECT * FROM workflow_execution WHERE session_id=#{sessionId} ORDER BY created_at DESC LIMIT 1")
+    WorkflowExecution latestForConversation(@Param("sessionId") long sessionId);
+
     @Update("UPDATE workflow_execution SET suspended_status=status, status='WAITING_RESUME', lease_owner=NULL, "
             + "lease_until=NULL, fence=fence+1, version=version+1, updated_at=NOW(6) "
             + "WHERE status NOT IN ('COMPLETED','FAILED','REJECTED','CANCELLED','WAITING_RESUME')")

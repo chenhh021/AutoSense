@@ -51,13 +51,17 @@ public final class GraphUpdates {
         var data = new LinkedHashMap<>(state.data()); data.putAll(delta); return new AssistantState(data);
     }
     public static Map<String, Object> failure(AssistantState state, String code, ExecutionPlan.Certainty certainty) {
+        return failure(state, code, certainty, Map.of());
+    }
+    public static Map<String, Object> failure(AssistantState state, String code, ExecutionPlan.Certainty certainty, Map<String, Object> publicData) {
         var delta = new LinkedHashMap<String, Object>();
         if (state.plan().currentStep() < state.plan().executionPlan().steps().size()) {
             delta.putAll(result(state, new ExecutionPlan.Result(ExecutionPlan.StepStatus.FAILED,
-                    Map.of(), code, certainty, state.retry().retriesUsed())));
+                    publicData, code, certainty, state.retry().retriesUsed())));
         }
+        var payload = new LinkedHashMap<>(publicData); payload.put("failureCode", code); payload.put("effectCertainty", certainty.name());
         delta.putAll(event(apply(state, delta), WorkflowStatus.FAILED, "STEP_RESULT", code,
-                "步骤执行失败。", Map.of("failureCode", code, "effectCertainty", certainty.name())));
+                "步骤执行失败：" + code, payload));
         return delta;
     }
 }

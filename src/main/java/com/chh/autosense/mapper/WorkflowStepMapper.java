@@ -13,5 +13,7 @@ public interface WorkflowStepMapper extends BaseMapper<WorkflowStep> {
 
     @Select("SELECT * FROM workflow_step WHERE request_id=#{requestId} ORDER BY ordinal")
     List<WorkflowStep> forWorkflow(@Param("requestId") String requestId);
-}
 
+    @Select("SELECT CAST(#{value} AS JSON)")
+    String normalizeJson(@Param("value") String value);
+}

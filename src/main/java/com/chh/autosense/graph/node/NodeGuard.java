@@ -21,7 +21,9 @@ public final class NodeGuard {
             try { return node.apply(state); }
             catch (Exception e) {
                 log.warn("Workflow node failed: errorType={}", e.getClass().getSimpleName());
-                if (e instanceof StepFailure failure) return GraphUpdates.failure(state, failure.code(), failure.certainty());
+                if (e instanceof com.chh.autosense.exception.ApiException api)
+                    return GraphUpdates.failure(state, api.errorCode().name(), ExecutionPlan.Certainty.NOT_SENT);
+                if (e instanceof StepFailure failure) return GraphUpdates.failure(state, failure.code(), failure.certainty(), failure.data());
                 return GraphUpdates.failure(state, e instanceof SecurityException ? "EXECUTION_REFUSED"
                         : "STEP_EXECUTION_FAILED", ExecutionPlan.Certainty.NOT_SENT);
             }

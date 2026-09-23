@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
 class WorkflowApprovalIT extends AbstractWorkflowIT {
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean(name = "workflowBusinessActions")
+    com.chh.autosense.graph.node.WorkflowStepActions businessActions;
+
     @org.springframework.beans.factory.annotation.Autowired com.chh.autosense.core.session.WorkflowExecutionService executions;
     @org.springframework.beans.factory.annotation.Autowired com.chh.autosense.core.session.ConversationQueryService conversations;
 
@@ -73,6 +76,12 @@ class WorkflowApprovalIT extends AbstractWorkflowIT {
         } finally { claims.release(claim); }
     }
     @Test void eachDeviceStepHasItsOwnDurableDecisionAndQueryNeverCreatesACommand() throws Exception {
+        // Test independent approvals, without using simulated evidence to decide a control.
+        var steps = java.util.List.of(
+                com.chh.autosense.graph.node.StubWorkflowActions.step("s1", com.chh.autosense.domain.enums.PlanStepType.DEVICE_QUERY),
+                com.chh.autosense.graph.node.StubWorkflowActions.step("s2", com.chh.autosense.domain.enums.PlanStepType.DEVICE_CONTROL));
+        org.mockito.Mockito.doReturn(new com.chh.autosense.graph.node.WorkflowStepActions.PlanProposal("PLAN", steps, null, com.chh.autosense.graph.node.StubWorkflowActions.fixtureDevices()))
+                .when(businessActions).plan(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         var accepted = start("查询亮度，低于30就调到80");
         var query = state(accepted).control().approvalRef();
         assertThat(state(accepted).workflow().status()).isEqualTo(WorkflowStatus.WAITING_APPROVAL);

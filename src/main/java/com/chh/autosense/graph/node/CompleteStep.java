@@ -22,7 +22,7 @@ public final class CompleteStep {
         delta.put(WORKFLOW, new WorkflowContext(workflow.status(), next, GraphUpdates.progress(advanced), workflow.version(),
                 "", "", "", "", workflow.schemaVersion(), workflow.graphVersion(), workflow.lastOutputSequence(), workflow.executionFence()));
         delta.put(CONTROL, new ControlContext(Map.of(), "", false, "", null, "", Map.of()));
-        delta.put(DEVICE, new DeviceContext(Map.of(), Map.of()));
+        delta.put(DEVICE, state.<DeviceContext>value(DEVICE).orElseThrow().withStep(Map.of(), Map.of()));
         delta.put(DIAGNOSIS, new DiagnosisContext(Map.of(), List.of(), Map.of(), Map.of()));
         // Preserve the active slice deadline across ordinary steps, but not step-local attempts.
         Object deadline = state.retry().completedCalls().get("sliceDeadline");

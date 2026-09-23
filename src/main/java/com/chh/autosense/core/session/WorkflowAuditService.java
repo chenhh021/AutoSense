@@ -18,7 +18,8 @@ import java.util.*;
 public class WorkflowAuditService {
     private static final Set<String> META_KEYS = Set.of("schemaVersion", "status", "stepType", "simulated", "approvalId",
             "inputRequestId", "expiresAt", "failureCode", "certainty", "retriesUsed", "fence", "version", "outputType",
-            "outputKey", "sourceRefs", "scopeHash", "decision", "node", "completed", "skipped", "notExecuted");
+            "outputKey", "sourceRefs", "scopeHash", "decision", "node", "completed", "skipped", "notExecuted",
+            "runtimeSource", "deviceCount", "degradedCount");
     private final RepairActionLogMapper audit;
     private final WorkflowExecutionMapper workflows;
     private final ObjectMapper json;

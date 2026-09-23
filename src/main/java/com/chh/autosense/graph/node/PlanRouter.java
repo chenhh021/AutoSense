@@ -44,13 +44,52 @@ public final class PlanRouter {
     }
 
     private Object value(ExecutionPlan.Operand operand, AssistantState state) {
+        if (operand.reference() != null && state.plan().step().type() == com.chh.autosense.domain.enums.PlanStepType.DEVICE_CONTROL) {
+            var result = state.plan().results().get(operand.reference().stepId());
+            if (result != null && isMock(result.data())) throw new StepFailure("MOCK_EVIDENCE_NOT_ALLOWED", ExecutionPlan.Certainty.NOT_SENT);
+        }
         return operand.reference() == null ? operand.literal() : resolve(operand.reference(), state);
     }
 
     private Object resolve(ExecutionPlan.Reference reference, AssistantState state) {
         var result = state.plan().results().get(reference.stepId());
-        if (result == null || !result.successful() || !result.data().containsKey(reference.field())
-                || result.data().get(reference.field()) == null) throw new IllegalArgumentException("Missing result evidence");
-        return result.data().get(reference.field());
+        if (result == null || !result.successful()) throw new IllegalArgumentException("Missing result evidence");
+        if (state.plan().step().type() == com.chh.autosense.domain.enums.PlanStepType.DEVICE_CONTROL && isMock(result.data())
+                && !Set.of("deviceRef", "deviceType", "model").contains(reference.field()))
+            throw new StepFailure("MOCK_EVIDENCE_NOT_ALLOWED", ExecutionPlan.Certainty.NOT_SENT);
+        return publicValue(result.data(), reference.field());
+    }
+
+    public static boolean isMock(Map<String, Object> data) {
+        // Historical name retained for callers: reject all untrusted device evidence, including incomplete legacy results.
+        if (!data.containsKey("deviceRef") && !data.containsKey("onlineInfo") && !data.containsKey("getResults")) return false;
+        return !hasTrustedDeviceEvidence(data);
+    }
+    public static boolean hasTrustedDeviceEvidence(Map<String, Object> data) {
+        Object source = data.get("source");
+        return ("REAL".equals(source) || "SIMULATOR".equals(source))
+                && data.get("onlineInfo") instanceof Map<?, ?> info && source.equals(info.get("source"))
+                && data.get("evidence") instanceof Map<?, ?> evidence && source.equals(evidence.get("source"));
+    }
+    public static Object publicValue(Map<String, Object> data, String field) {
+        if (!field.startsWith("getResults.")) {
+            Object value = data.get(field); if (value == null) throw new IllegalArgumentException("Missing result evidence"); return value;
+        }
+        if (!PlanValidator.dynamicPath(field)) throw new IllegalArgumentException("Invalid result path");
+        Object value = data.get("onlineInfo");
+        for (String key : field.split("\\.")) {
+            if (!(value instanceof Map<?, ?> map) || !map.containsKey(key)) throw new IllegalArgumentException("Missing model property");
+            value = map.get(key);
+        }
+        if (value == null) throw new IllegalArgumentException("Missing model property");
+        if (!(data.get("capabilityInfo") instanceof Map<?, ?> capability)
+                || !(capability.get("rawJson") instanceof String raw)
+                || !(capability.get("deviceType") instanceof String type)
+                || !(capability.get("deviceModel") instanceof String model))
+            throw new IllegalArgumentException("Missing source model definition");
+        var definition = com.chh.autosense.service.impl.DeviceCapabilityServiceImpl.parse(type, model, raw);
+        if (!definition.contentHash().equals(capability.get("contentHash"))) throw new IllegalArgumentException("Invalid source model hash");
+        definition.field(field).validate(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(value));
+        return value;
     }
 }

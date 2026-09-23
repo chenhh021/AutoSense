@@ -1,0 +1,177 @@
+{
+  "deviceType": "AIR_PURIFIER",
+  "name": "空气净化器",
+  "deviceModel": "BLJ48WD240200PV",
+  "capabilities": [
+    {
+      "code": "get_properties",
+      "type": "GET",
+      "description": "获取空气净化器当前全部可读属性",
+      "result": {
+        "dataType": "OBJECT",
+        "properties": {
+          "power": {
+            "dataType": "BOOLEAN",
+            "description": "当前电源开关状态"
+          },
+          "mode": {
+            "dataType": "STRING",
+            "description": "当前运行模式",
+            "enumValues": ["AUTO", "SLEEP", "MANUAL"]
+          },
+          "fan_speed": {
+            "dataType": "STRING",
+            "description": "当前风速档位",
+            "enumValues": ["LOW", "MEDIUM", "HIGH"]
+          },
+          "pm25": {
+            "dataType": "NUMBER",
+            "description": "当前环境 PM2.5 浓度",
+            "min": 0,
+            "unit": "μg/m³"
+          },
+          "air_quality": {
+            "dataType": "STRING",
+            "description": "当前综合空气质量等级",
+            "enumValues": ["EXCELLENT", "GOOD", "MODERATE", "POOR"]
+          },
+          "temperature": {
+            "dataType": "NUMBER",
+            "description": "当前环境温度",
+            "unit": "°C"
+          },
+          "humidity": {
+            "dataType": "NUMBER",
+            "description": "当前环境相对湿度",
+            "min": 0,
+            "max": 100,
+            "unit": "%"
+          },
+          "filter_life": {
+            "dataType": "INTEGER",
+            "description": "滤芯剩余寿命百分比",
+            "min": 0,
+            "max": 100,
+            "unit": "%"
+          },
+          "motor_status": {
+            "dataType": "STRING",
+            "description": "风机电机当前运行状态",
+            "enumValues": ["STOPPED", "RUNNING", "ERROR"]
+          },
+          "error_code": {
+            "dataType": "STRING",
+            "description": "设备当前故障码，无故障时为空"
+          },
+          "child_lock": {
+            "dataType": "BOOLEAN",
+            "description": "童锁功能是否开启"
+          },
+          "display_brightness": {
+            "dataType": "INTEGER",
+            "description": "设备显示屏当前亮度",
+            "min": 0,
+            "max": 100,
+            "unit": "%"
+          },
+          "online": {
+            "dataType": "BOOLEAN",
+            "description": "设备当前在线状态"
+          },
+          "firmware_version": {
+            "dataType": "STRING",
+            "description": "设备当前固件版本"
+          }
+        }
+      }
+    },
+    {
+      "code": "set_properties",
+      "type": "SET",
+      "description": "设置空气净化器的一个或多个可写属性，仅需提供需要修改的参数",
+      "parameters": {
+        "dataType": "OBJECT",
+        "properties": {
+          "power": {
+            "dataType": "BOOLEAN",
+            "required": false,
+            "description": "设置电源开关状态"
+          },
+          "mode": {
+            "dataType": "STRING",
+            "required": false,
+            "description": "设置运行模式",
+            "enumValues": ["AUTO", "SLEEP", "MANUAL"]
+          },
+          "fan_speed": {
+            "dataType": "STRING",
+            "required": false,
+            "description": "设置风速档位",
+            "enumValues": ["LOW", "MEDIUM", "HIGH"]
+          },
+          "child_lock": {
+            "dataType": "BOOLEAN",
+            "required": false,
+            "description": "设置童锁功能"
+          },
+          "display_brightness": {
+            "dataType": "INTEGER",
+            "required": false,
+            "description": "设置显示屏亮度",
+            "min": 0,
+            "max": 100,
+            "unit": "%"
+          }
+        }
+      }
+    },
+    {
+      "code": "reboot",
+      "type": "ACTION",
+      "description": "重启空气净化器，使设备重新初始化并重新连接网络",
+      "riskLevel": "MEDIUM",
+      "parameters": []
+    },
+    {
+      "code": "self_diagnosis",
+      "type": "ACTION",
+      "description": "执行设备自检并返回传感器、风机等组件的故障信息",
+      "riskLevel": "LOW",
+      "parameters": []
+    },
+    {
+      "code": "reset_filter_life",
+      "type": "ACTION",
+      "description": "更换滤芯后重置滤芯寿命计数",
+      "riskLevel": "MEDIUM",
+      "parameters": []
+    },
+    {
+      "code": "sensor_calibration",
+      "type": "ACTION",
+      "description": "重新校准设备空气质量相关传感器",
+      "riskLevel": "MEDIUM",
+      "parameters": []
+    },
+    {
+      "code": "firmware_upgrade",
+      "type": "ACTION",
+      "description": "将空气净化器固件升级到指定或最新可用版本",
+      "riskLevel": "HIGH",
+      "parameters": [
+        {
+          "name": "version",
+          "dataType": "STRING",
+          "required": false
+        }
+      ]
+    },
+    {
+      "code": "factory_reset",
+      "type": "ACTION",
+      "description": "恢复空气净化器出厂设置，清除设备配置及网络配置信息",
+      "riskLevel": "HIGH",
+      "parameters": []
+    }
+  ]
+}

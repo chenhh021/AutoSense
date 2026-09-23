@@ -34,8 +34,10 @@ public class GraphConfiguration {
             com.chh.autosense.service.knowledge.KnowledgeWorkflowService knowledge,
             com.chh.autosense.core.device.DeviceQueryService queries,
             com.chh.autosense.core.analysis.DiagnosisWorkflowService diagnosis,
-            com.chh.autosense.core.repair.RepairExecutor repair) {
-        return new com.chh.autosense.graph.node.RealWorkflowActions(planner, memory, encoder, knowledge, queries, diagnosis, repair);
+            com.chh.autosense.core.repair.RepairExecutor repair,
+            DeviceQueryProperties deviceProperties, com.chh.autosense.service.DeviceListService deviceLists,
+            com.chh.autosense.service.knowledge.UserAiServiceCache aiServices) {
+        return new com.chh.autosense.graph.node.RealWorkflowActions(planner, memory, encoder, knowledge, queries, diagnosis, repair, deviceProperties, deviceLists, aiServices);
     }
 
     @Bean

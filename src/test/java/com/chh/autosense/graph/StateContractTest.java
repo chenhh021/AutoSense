@@ -24,10 +24,10 @@ class StateContractTest {
         var list = new ArrayList<>(List.of("first"));
         var source = new HashMap<String, Object>();
         source.put("values", list);
-        var context = new DeviceContext(source, Map.of());
+        var context = new DeviceContext(Map.of(), source);
         list.add("second"); source.clear();
-        assertThat((List<?>) context.resolved().get("values")).hasSize(1);
-        assertThatThrownBy(() -> context.resolved().put("x", 1)).isInstanceOf(UnsupportedOperationException.class);
+        assertThat((List<?>) context.snapshots().get("values")).hasSize(1);
+        assertThatThrownBy(() -> context.snapshots().put("x", 1)).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> StateData.freeze(Map.of("runtime", new Object())))
                 .isInstanceOf(IllegalArgumentException.class);
     }

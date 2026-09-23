@@ -44,17 +44,15 @@ public class WorkflowCheckpointService {
     @Transactional(readOnly = true)
     public Optional<Checkpoint> get(String threadId, String id) {
         var row = id == null ? checkpoints.latest(threadId) : checkpoints.find(threadId, id);
-        return Optional.ofNullable(row).map(this::restore);
+        return Optional.ofNullable(row).map(saved -> restore(saved, false));
     }
     @Transactional(readOnly = true)
-    public List<Checkpoint> history(String threadId) { return checkpoints.history(threadId).stream().map(this::restore).toList(); }
+    public List<Checkpoint> history(String threadId) { return checkpoints.history(threadId).stream().map(row -> restore(row, true)).toList(); }
 
-    private Checkpoint restore(WorkflowCheckpoint row) {
-        if (row.getSchemaVersion() != AssistantStateSerializer.SCHEMA_VERSION
-                || !AssistantStateSerializer.GRAPH_VERSION.equals(row.getGraphVersion()))
-            throw new IllegalStateException("Unsupported checkpoint version");
+    private Checkpoint restore(WorkflowCheckpoint row, boolean history) {
+        if (!history) AssistantStateSerializer.requireExecutable(row.getSchemaVersion(), row.getGraphVersion());
         try {
-            var data = serializer.decode(row.getStatePayload());
+            var data = history ? serializer.decodeHistory(row.getStatePayload()) : serializer.decode(row.getStatePayload());
             if (!new AssistantState(data).request().requestId().equals(row.getThreadId()))
                 throw new IOException("Checkpoint thread identity mismatch");
             return Checkpoint.builder().id(row.getCheckpointId()).state(data).nodeId(row.getNodeId()).nextNodeId(row.getNextNode()).build();

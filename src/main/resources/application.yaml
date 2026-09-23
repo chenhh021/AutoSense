@@ -63,6 +63,19 @@ knife4j:
 
 # ===== AutoSense 外部服务配置(章程原则 V:全部经环境变量注入,禁止硬编码凭据)=====
 autosense:
+  device-query:
+    runtime-provider: ${DEVICE_QUERY_RUNTIME_PROVIDER:real}
+    external-source: ${DEVICE_QUERY_EXTERNAL_SOURCE:SIMULATOR}
+    initialization-timeout: ${DEVICE_QUERY_INITIALIZATION_TIMEOUT:10s}
+    online-lookup-parallelism: ${DEVICE_QUERY_ONLINE_PARALLELISM:4}
+    max-sns: ${DEVICE_QUERY_MAX_SNS:50}
+    max-planner-device-bytes: ${DEVICE_QUERY_MAX_PLANNER_BYTES:262144}
+    capability-cache-ttl: ${DEVICE_QUERY_CAPABILITY_TTL:3600s}
+    mock-default-ranges:
+      integer: { min: 0, max: 100 }
+      number: { min: 0, max: 100 }
+      signal_strength: { min: -100, max: -30 }
+      current_temperature: { min: 16, max: 35 }
   graph:
     mode: ${AUTOSENSE_GRAPH_MODE:real}
     max-plan-steps: ${GRAPH_MAX_PLAN_STEPS:8}

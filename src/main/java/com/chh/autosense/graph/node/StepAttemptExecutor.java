@@ -26,11 +26,20 @@ public final class StepAttemptExecutor {
 
     public Map<String, Object> plan(AssistantState state, Call<WorkflowStepActions.PlanProposal> call) {
         return attempt(state, Duration.ofSeconds(properties.plannerTimeoutSeconds()), call, proposal -> {
+            WorkflowPlanLog.generated(state, proposal);
             var delta = new LinkedHashMap<String, Object>();
             delta.put(PLAN, new PlanContext(new ExecutionPlan(proposal.steps(), ""), 0, Map.of(), Map.of(),
                     proposal.outcome(), Objects.toString(proposal.clarifyQuestion(), "")));
+            var snapshot = proposal.deviceContext();
+            if (snapshot != null) delta.put(DEVICE, snapshot);
+            boolean loaded = snapshot != null && snapshot.initialized()
+                    && !state.<DeviceContext>value(DEVICE).orElseThrow().initialized();
+            long degraded = loaded ? snapshot.statusMetadata().values().stream()
+                    .filter(value -> value instanceof Map<?, ?> map && "DEFAULT_OFFLINE".equals(map.get("source"))).count() : 0;
             delta.putAll(GraphUpdates.event(GraphUpdates.apply(state, delta), WorkflowStatus.VALIDATING,
-                    "STATUS", "VALIDATING", "正在校验执行计划。", Map.of()));
+                    "STATUS", loaded ? (degraded == 0 ? "DEVICE_CONTEXT_READY" : "DEVICE_CONTEXT_DEGRADED") : "VALIDATING",
+                    loaded ? "设备基础信息已准备，正在校验执行计划。" : "正在校验执行计划。",
+                    loaded ? Map.of("deviceCount", snapshot.planningDevices().size(), "degradedCount", degraded) : Map.of()));
             return delta;
         }, true, false);
     }
@@ -68,7 +77,9 @@ public final class StepAttemptExecutor {
                 cache.putAll(calls.finish());
                 Throwable cause = e instanceof ExecutionException ? e.getCause() : e;
                 log.warn("Workflow attempt failed: stepId={}, attemptId={}, errorType={}", stepId, attemptId, cause.getClass().getSimpleName());
-                if (cause instanceof StepFailure failure) return GraphUpdates.failure(state, failure.code(), failure.certainty());
+                if (cause instanceof StepFailure failure) return GraphUpdates.failure(state, failure.code(), failure.certainty(), failure.data());
+                if (cause instanceof com.chh.autosense.exception.ApiException api)
+                    return GraphUpdates.failure(state, api.errorCode().name(), ExecutionPlan.Certainty.NOT_SENT);
                 boolean timeout = isTimeout(cause);
                 if (cause instanceof InterruptedException) Thread.currentThread().interrupt();
                 if (timeout && command && !safeCommandRetry)

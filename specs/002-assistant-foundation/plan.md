@@ -6,6 +6,10 @@
 **本轮修订**: LangGraph4j移植完成时必须删除SessionOrchestrator及旧编排设计；不能以保留精简门面、开关回退或仅停止注入作为完成标准。
 **持久化修订**: 按conversation、chat_message、workflow_execution、command_execution、audit_event五类逻辑数据组织；复用repair_session、chat_message、repair_action_log，只补充工作流/命令及必要内部结构，取代上版独立workflow_event新表方案。
 
+## 2026-09-21：004基础事实回答与查询契约更新
+
+004的[计划](../004-user-device-query/plan.md)与[任务](../004-user-device-query/tasks.md)负责以下增量，不计入002旧83项完成记录：LoadUserDevices固定初始化→Planner；已有基础事实足够时沿用KNOWLEDGE_CONSULT直接回答（requiresKnowledgeBase=false、answerMode=DEVICE_CONTEXT），不生成DEVICE_QUERY/list/metadata。DirectAnswerService通过资源模板接收已保存事实，复用工厂/缓存/stream，身份归属重验，不额外查设备或检索。运行属性确认范围为完整GET快照及能力hash；型号结构化对象及动态字段/前序引用替代固定清单，MOCK只展示，不参与真实控制条件。具体任务与验收以004为准，下文描述原002交付基线。
+
 ## Summary
 
 以 LangGraph4j 重写会话响应编排。MainGraph 负责规划、验证、确定性路由、步骤完成和最终汇总；KnowledgeConsult 复用知识能力，Query/Diagnosis/Control 通过独立子图接入。Controller 消费 graph.stream 的中间 State 中 OutputContext，投影为 WorkflowEvent，再发送 SSE；AI 回调不直接推送 SSE。
@@ -185,7 +189,7 @@ Controller 从LangGraph4j `NodeOutput.state()`读取OutputContext，纯投影到
 
 共扩展三张旧表、新增五张表，其中三张是工作流内部辅助表；本期不为逻辑名称一致重命名旧表或建立同步副本。已有problem_report/diagnostic_snapshot继续用于轮次描述和诊断证据。字段、唯一键及权威见[data-model](data-model.md#4-持久化设计)。
 命令意图/审计与写前checkpoint就绪后才可发送，结果事务同步命令账本、步骤投影、最终消息和审计；checkpoint随后失败只补齐state，不重复执行已成功命令。audit_event只记事实，不充当可变命令账本或直接对外输出；审计SUCCESS须结合事件种类解释，不能当作设备效果成功。
-旧关联列允许null，旧ID/正文/动作日志不改写，不将旧日志回填成可恢复命令。新增前向迁移、新建库DDL及SessionSchemaValidator只读校验同步；升级库与全新库分别验证。会话删除在终止且无未知命令时按依赖删除关联记录，不能遗漏新表或先删命令后保留孤立审计。
+旧关联列允许null，旧ID/正文/动作日志不改写，不将旧日志回填成可恢复命令。新增前向迁移、新建库DDL及SessionSchemaValidator只读校验同步；升级库与全新库分别验证。会话删除以实际执行租约为依据：无有效租约且无 IN_FLIGHT/UNKNOWN 命令时，允许删除未终止、等待或已终止的会话；持有有效租约或旧 processing_message_id 时拒绝。删除事务使用 READ_COMMITTED，先锁定已有工作流再锁会话，并复查是否新增工作流，避免与执行结果写入竞争；按依赖清理所有关联记录。列表状态投影最新工作流，防止重启后的 WAITING_RESUME 仍显示旧 DISPATCHING。
 
 ### 旧编排删除与职责迁移
 
@@ -240,6 +244,8 @@ stub模式必须显式且生产禁用，输出标记simulated；G1通过不代�
 | 用户新增架构要求 | 十个state键、主图/三子图、requestId threadId、stream安全投影、Java基包graph目录及stub优先；graph-contract与G1/G2 |
 
 ## Complexity Tracking
+
+2026-09-21后续接入实施：004已按[设备工具计划](../004-user-device-query/plan.md)与[图接入契约](../004-user-device-query/contracts/workflow-integration.md)增加主图及初始checkpoint入口LoadUserDevices，Planner与基础信息直接回答服务实际接收本人设备快照。已接入四型号结构化Mock、Redis能力缓存、完整GET范围确认与动态字段校验；Mock不得驱动真实分析、诊断或控制。DeviceContext采用schema2/assistant-v2，v1只读历史保留，旧未终止计划须在旧版本完成或显式终止。公共持久层同步修复澄清消息键冲突和MySQL JSON浮点数结果重复提交误判。证据及尚未完成的浏览器验收见[004验证记录](../004-user-device-query/validation.md)；不改写本计划原有83项完成记录或旧版验收证据，未自动迁移或部署。
 
 | 偏离/新增复杂度 | 理由 | 未采用的替代 |
 | --- | --- | --- |

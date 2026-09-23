@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -46,20 +47,26 @@ class DeviceApiContractTest {
     private DeviceAdapterRegistryService adapterRegistry;
 
     @MockitoBean
+    private com.chh.autosense.service.DeviceListService deviceListService;
+    @MockitoBean
+    private com.chh.autosense.config.DeviceQueryProperties queryProperties;
+    @MockitoBean
     private UserTokenResolver tokenResolver;
 
     @BeforeEach
     void setUp() {
+        when(queryProperties.initializationTimeout()).thenReturn(java.time.Duration.ofSeconds(10));
         when(tokenResolver.resolve(anyString())).thenReturn(new AuthUser(1L));
     }
 
     @Test
     void 管理员设备列表仍按本人过滤() throws Exception {
         when(tokenResolver.resolve("Bearer admin-token")).thenReturn(new AuthUser(99L, "admin"));
-        when(registryService.listMine(99L)).thenReturn(List.of());
+        when(deviceListService.listMine(org.mockito.ArgumentMatchers.eq(new AuthUser(99L, "admin")), any()))
+                .thenReturn(new com.chh.autosense.domain.dto.DeviceListSnapshot(List.of(), java.util.Map.of(), java.time.Instant.now()));
         mockMvc.perform(get("/api/v1/devices").header("Authorization", "Bearer admin-token"))
                 .andExpect(status().isOk());
-        verify(registryService).listMine(99L);
+        verify(deviceListService).listMine(org.mockito.ArgumentMatchers.eq(new AuthUser(99L, "admin")), any());
         verify(registryService, never()).listMine(1L);
     }
 
@@ -118,10 +125,8 @@ class DeviceApiContractTest {
     void 列表投影稳定字段及动态支持性与在线状态() throws Exception {
         Device onlineDevice = device("LITE123456789", "客厅灯", "sim-la001", "LITE", "LA001");
         Device offlineDevice = device("LITE123456780", "卧室灯", "sim-la001-2", "LITE", "LA001");
-        when(registryService.listMine(1L)).thenReturn(List.of(onlineDevice, offlineDevice));
-        when(adapterRegistry.isSupported(any(Device.class))).thenReturn(true);
-        when(registryService.isOnline(onlineDevice)).thenReturn(true);
-        when(registryService.isOnline(offlineDevice)).thenReturn(false);
+        when(deviceListService.listMine(any(), any())).thenReturn(new com.chh.autosense.domain.dto.DeviceListSnapshot(
+                List.of(view(onlineDevice, true), view(offlineDevice, false)), java.util.Map.of(), java.time.Instant.now()));
 
         mockMvc.perform(get("/api/v1/devices")
                         .header("Authorization", "Bearer user-1"))
@@ -173,6 +178,26 @@ class DeviceApiContractTest {
                 .andExpect(jsonPath("$.code").value(code.getCode()))
                 .andExpect(jsonPath("$.data.code").value(code.name()))
                 .andExpect(jsonPath("$.data.message").value(message));
+    }
+
+    @Test void fourModelBasicInformationKeepsTheExistingPageContract() throws Exception {
+        var fixtures = com.chh.autosense.support.DeviceQueryFixtures.devices(1);
+        when(deviceListService.listMine(any(), any())).thenReturn(new com.chh.autosense.domain.dto.DeviceListSnapshot(
+                fixtures.stream().map(device -> view(device, true)).toList(), java.util.Map.of(), java.time.Instant.now()));
+        var response = mockMvc.perform(get("/api/v1/devices").header("Authorization", "Bearer user-1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.devices.length()").value(4));
+        for (int i = 0; i < fixtures.size(); i++) {
+            var device = fixtures.get(i);
+            response.andExpect(jsonPath("$.devices[" + i + "].deviceTypeCode").value(device.getDeviceTypeCode()))
+                    .andExpect(jsonPath("$.devices[" + i + "].deviceModelCode").value(device.getDeviceModelCode()))
+                    .andExpect(jsonPath("$.devices[" + i + "].online").value(true));
+        }
+        verifyNoInteractions(registryService);
+    }
+
+    private com.chh.autosense.domain.vo.DeviceView view(Device d, boolean online) {
+        return new com.chh.autosense.domain.vo.DeviceView(d.getId(), d.getName(), d.getSimulatorName(), d.getSn(),
+                d.getDeviceTypeCode(), d.getDeviceTypeId(), d.getDeviceModelCode(), d.getDeviceModelId(), true, online);
     }
 
     private Device device(String sn, String name, String simulatorName,

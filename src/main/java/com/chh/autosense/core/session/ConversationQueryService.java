@@ -12,14 +12,17 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mybatisflex.core.query.QueryWrapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import java.time.ZoneOffset;
 import java.util.*;
 
 /** History reads never expire, resume or execute a workflow. */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ConversationQueryService {
     private final RepairSessionMapper sessions;
     private final ChatMessageMapper messages;
@@ -86,9 +89,19 @@ public class ConversationQueryService {
                     Object refs = json.readValue(current.getDeviceRefs(), Object.class);
                     parameters.put("deviceRefs", refs);
                     var ids = refs instanceof List<?> list ? list : List.of(refs);
-                    var names = devices.selectMine(workflow.getUserId()).stream()
+                    var targets = devices.selectMine(workflow.getUserId()).stream()
                             .filter(d -> ids.stream().anyMatch(id -> id instanceof Number n && n.longValue() == d.getId()))
-                            .map(Device::getName).filter(Objects::nonNull).toList();
+                            .toList();
+                    // Display identity comes from owned bindings, never from planner-supplied text.
+                    parameters.keySet().removeAll(Set.of("name", "sn", "deviceType", "model", "deviceNames"));
+                    if (targets.size() == 1) {
+                        var target = targets.getFirst();
+                        parameters.put("name", target.getName());
+                        parameters.put("sn", target.getSn());
+                        parameters.put("deviceType", target.getDeviceTypeCode());
+                        parameters.put("model", target.getDeviceModelCode());
+                    }
+                    var names = targets.stream().map(Device::getName).filter(Objects::nonNull).toList();
                     if (!names.isEmpty()) parameters.put("deviceNames", names);
                 }
                 catch (Exception e) { throw new IllegalStateException("Stored approval scope is invalid", e); }
@@ -98,7 +111,8 @@ public class ConversationQueryService {
         }
         var status = WorkflowStatus.valueOf(workflow.getStatus());
         return new WorkflowView(workflow.getRequestId(), workflow.getSessionId(), status, workflow.getCurrentStepIndex(), progress,
-                workflow.getVersion(), status == WorkflowStatus.WAITING_RESUME && checkpoints.latest(workflow.getRequestId()) != null,
+                workflow.getVersion(), status == WorkflowStatus.WAITING_RESUME && Integer.valueOf(com.chh.autosense.graph.checkpoint.AssistantStateSerializer.SCHEMA_VERSION).equals(workflow.getSchemaVersion())
+                        && com.chh.autosense.graph.checkpoint.AssistantStateSerializer.GRAPH_VERSION.equals(workflow.getGraphVersion()) && checkpoints.latest(workflow.getRequestId()) != null,
                 views, approval, workflow.getFailureCode(), workflow.getInputRequestId(), workflow.getPrompt());
     }
     private int count(List<WorkflowStep> rows, String status) { return (int) rows.stream().filter(s -> s.getStatus().equals(status)).count(); }
@@ -111,7 +125,10 @@ public class ConversationQueryService {
                 var first = messages.selectOneByQuery(QueryWrapper.create().where("session_id = ?", session.getId()).and("role = ?", "USER").orderBy("id", true).limit(1));
                 preview = first == null ? null : first.getContent();
             }
-            return new SessionListItemView(session.getId(), session.getStatus(), preview, session.getCreatedAt(), session.getUpdatedAt());
+            var latest = workflows.latestForConversation(session.getId());
+            String status = latest == null ? session.getStatus()
+                    : WorkflowPersistenceService.legacyStatus(WorkflowStatus.valueOf(latest.getStatus()));
+            return new SessionListItemView(session.getId(), status, preview, session.getCreatedAt(), session.getUpdatedAt());
         }).toList();
     }
 
@@ -121,15 +138,31 @@ public class ConversationQueryService {
         return messages.selectListByQuery(QueryWrapper.create().where("session_id = ?", sessionId).orderBy("id", true));
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void delete(AuthUser user, long sessionId) {
         owned(user, sessionId);
-        var session = sessions.lockById(sessionId);
-        if (session.getProcessingMessageId() != null) throw WorkflowClaimService.conflict("WORKFLOW_BUSY");
+        // Match result/checkpoint writers: workflow rows first, conversation row second.
+        // Holding these locks prevents a continuation from acquiring a new execution claim.
         var history = workflows.forConversation(sessionId);
+        for (var workflow : history) workflows.lock(workflow.getRequestId());
+        var session = sessions.lockById(sessionId);
+        if (session == null) throw new ApiException(ErrorCode.SESSION_NOT_FOUND, "会话不存在");
+        if (session.getProcessingMessageId() != null)
+            throw new ApiException(ErrorCode.WORKFLOW_BUSY, "旧版请求尚未完成，暂时无法删除对话");
+        var current = workflows.forConversation(sessionId);
+        if (!current.stream().map(WorkflowExecution::getRequestId).toList()
+                .equals(history.stream().map(WorkflowExecution::getRequestId).toList()))
+            throw new ApiException(ErrorCode.WORKFLOW_BUSY, "对话刚接收了新请求，请稍后重试删除");
         for (var workflow : history) {
-            if (!WorkflowStatus.valueOf(workflow.getStatus()).terminal() || commands.forWorkflow(workflow.getRequestId()).stream()
-                    .anyMatch(c -> Set.of("UNKNOWN", "IN_FLIGHT").contains(c.getCertainty()))) throw WorkflowClaimService.conflict("WORKFLOW_BUSY");
+            // Re-read with a locking/current read, not the transaction's earlier snapshot.
+            var locked = workflows.lock(workflow.getRequestId());
+            if (locked != null && locked.getLeaseOwner() != null && locked.getLeaseUntil() != null
+                    && locked.getLeaseUntil().isAfter(workflows.databaseNow()))
+                throw new ApiException(ErrorCode.WORKFLOW_BUSY, "对话仍在执行，请等待当前请求结束后再删除");
+            if (commands.forWorkflow(workflow.getRequestId()).stream().anyMatch(c ->
+                    Set.of("UNKNOWN", "IN_FLIGHT").contains(c.getCertainty())
+                            || Set.of("UNKNOWN", "IN_FLIGHT").contains(c.getStatus())))
+                throw new ApiException(ErrorCode.WORKFLOW_BUSY, "设备命令仍在执行或结果尚未确定，暂时无法删除对话");
         }
         for (var workflow : history) {
             String id = workflow.getRequestId();
@@ -144,6 +177,7 @@ public class ConversationQueryService {
         reports.deleteByQuery(QueryWrapper.create().where("session_id = ?", sessionId));
         workflows.deleteByQuery(QueryWrapper.create().where("session_id = ?", sessionId));
         sessions.deleteById(sessionId);
+        log.info("Conversation deleted: conversationId={}, userId={}, workflowCount={}", sessionId, user.userId(), history.size());
     }
 
     private ConclusionDto legacyConclusion(RepairSession session) {

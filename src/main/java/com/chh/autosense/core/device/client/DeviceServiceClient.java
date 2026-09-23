@@ -40,6 +40,9 @@ public interface DeviceServiceClient {
      */
     DeviceLookupResult findDeviceBySn(String sn);
 
+    /** POST /device/{sn}/get online probe; discard all attributes except properties.online. */
+    boolean isDeviceOnline(String sn);
+
     record RepairResult(boolean success, String message) {
     }
 

@@ -288,3 +288,12 @@ flowchart TD
 4. **最终替换**：前端适配，共享职责迁移后删除旧源码/Bean/配置/测试依赖，完整回归；旧59项记录不转换为新图完成。
 
 **Progress**: 83/83 tasks complete. Evidence: validation-langgraph.md. Application database migration has not been applied.
+
+
+## 2026-09-23 DISPATCHING 删除修复
+
+- [x] 删除条件改为有效租约和未确定命令，事务锁定、复查及关联清理；列表使用最新工作流状态。
+- [x] 前端删除失败显示具体 API 原因。
+- [x] 验证过期/释放租约、等待恢复/确认、活跃租约、未知命令、所有权和迟到 fence；后端与前端构建。
+
+验证：ConversationHistoryIT、WorkflowRecoveryIT、CommandExecutionIT 共 11 项通过（target/conversation-delete-it.log）；mvn -B verify 共 279 项，271 通过、8 项外部模型测试默认跳过（target/conversation-delete-verify.log）；前端 npm run build（含类型检查）通过（target/conversation-delete-frontend.log）；git diff --check 通过。浏览器交互未实测。本次未操作应用业务数据库，无需数据库迁移。此前 T046 的“非终止拒绝删除”规则由本修订替代，仍保护有效执行租约和未确定命令。

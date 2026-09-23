@@ -29,8 +29,21 @@ public final class StubWorkflowActions implements WorkflowStepActions {
     public List<String> calls() { return List.copyOf(calls); }
     public int commandCount() { return commands.size(); }
 
+    public static AssistantState.DeviceContext fixtureDevices() {
+        return new AssistantState.DeviceContext(Map.of(), Map.of(), List.of(Map.of("id", 1L, "name", "lamp",
+                "sn", "stub-sn", "deviceType", "smart_bulb", "deviceModel", "stub-lamp", "online", true)), Map.of(), Map.of(),
+                true, java.time.Instant.now().toString(), "stub-device");
+    }
     @Override public PlanProposal plan(AssistantState state, Duration remaining) throws Exception {
         call("plan", state);
+        var proposal = proposal(state);
+        boolean needsDevices = proposal.steps().stream().anyMatch(step -> step.parameters().containsKey("deviceRef")
+                || "DEVICE_CONTEXT".equals(step.parameters().get("answerMode")));
+        return new PlanProposal(proposal.outcome(), proposal.steps(), proposal.clarifyQuestion(),
+                needsDevices ? fixtureDevices() : null);
+    }
+
+    private PlanProposal proposal(AssistantState state) {
         if (fixture != null) return fixture;
         String text = Objects.toString(state.plan().runtimeInputs().get("clarification"), state.request().userMessage());
         if (text.contains("低于") && text.contains("调")) {
@@ -50,7 +63,8 @@ public final class StubWorkflowActions implements WorkflowStepActions {
     }
 
     public static ExecutionPlan.Step step(String id, PlanStepType type) {
-        return new ExecutionPlan.Step(id, type, "Offline fixture", "lamp", Map.of(), List.of(), Map.of(), null,
+        return new ExecutionPlan.Step(id, type, "Offline fixture", "lamp",
+                type == PlanStepType.DEVICE_QUERY || type == PlanStepType.DEVICE_CONTROL ? Map.of("deviceRef", 1L) : Map.of(), List.of(), Map.of(), null,
                 type == PlanStepType.KNOWLEDGE_CONSULT ? false : null, null);
     }
 

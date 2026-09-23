@@ -29,6 +29,12 @@ public class RepairExecutor {
     public Map<String, Object> executeApproved(com.chh.autosense.graph.state.AssistantState state) {
         var device = queries.device(state);
         var input = state.plan().runtimeInputs();
+        for (var binding : state.plan().step().inputBindings().values()) {
+            var evidence = state.plan().results().get(binding.stepId());
+            if (evidence != null && com.chh.autosense.graph.node.PlanRouter.isMock(evidence.data())
+                    && !java.util.Set.of("deviceRef", "deviceType", "model").contains(binding.field()))
+                throw failure("MOCK_EVIDENCE_NOT_ALLOWED", com.chh.autosense.graph.state.ExecutionPlan.Certainty.NOT_SENT);
+        }
         String action = java.util.Objects.toString(input.get("action"), "");
         String command;
         Map<String, Object> parameters;
@@ -39,6 +45,15 @@ public class RepairExecutor {
         }
         var adapter = adapters.adapterOf(device).orElseThrow(() -> failure("CAPABILITY_NOT_AVAILABLE", com.chh.autosense.graph.state.ExecutionPlan.Certainty.NOT_SENT));
         if (!isAllowed(adapter, device, command)) throw failure("COMMAND_NOT_ALLOWED", com.chh.autosense.graph.state.ExecutionPlan.Certainty.NOT_SENT);
+        var declared = queries.definition(device).capabilities().get("set_properties");
+        if (declared == null || !"SET".equals(declared.type()) || !declared.parameters().properties().keySet().containsAll(parameters.keySet()))
+            throw failure("COMMAND_NOT_ALLOWED", com.chh.autosense.graph.state.ExecutionPlan.Certainty.NOT_SENT);
+        try {
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            parameters.forEach((key, value) -> declared.parameters().properties().get(key).validate(json.valueToTree(value)));
+        } catch (IllegalArgumentException invalid) {
+            throw failure("INVALID_COMMAND_PARAMETERS", com.chh.autosense.graph.state.ExecutionPlan.Certainty.NOT_SENT);
+        }
         String owner = java.util.UUID.randomUUID().toString();
         if (!locks.tryLock(device.getId(), owner)) throw failure("DEVICE_BUSY", com.chh.autosense.graph.state.ExecutionPlan.Certainty.NOT_SENT);
         try {

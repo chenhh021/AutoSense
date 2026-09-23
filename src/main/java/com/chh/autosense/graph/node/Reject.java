@@ -24,7 +24,9 @@ public final class Reject {
         var status = state.workflow().status() == WorkflowStatus.CANCELLED ? WorkflowStatus.CANCELLED
                 : state.workflow().status() == WorkflowStatus.REJECTED ? WorkflowStatus.REJECTED : WorkflowStatus.FAILED;
         delta.putAll(GraphUpdates.event(GraphUpdates.apply(state, delta), status, "ERROR", state.workflow().failureCode(),
-                "本次计划已停止，已完成的结果仍然保留。", Map.of("failureCode", state.workflow().failureCode())));
+                Set.of("DEVICE_TARGET_REQUIRED", "DEVICE_TARGET_INVALID", "DEVICE_BINDING_CHANGED").contains(state.workflow().failureCode())
+                        ? "设备目标缺失、失效或绑定已变化，请重新发起请求以规划目标；已完成的结果仍然保留。"
+                        : "本次计划已停止，已完成的结果仍然保留。", Map.of("failureCode", state.workflow().failureCode())));
         return delta;
     }
 }

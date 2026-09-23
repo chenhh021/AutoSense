@@ -63,6 +63,7 @@ public class WorkflowRecoveryService {
     @Transactional
     public Restored restore(AuthUser user, long sessionId, String requestId, long version, boolean explicitResume) {
         var workflow = claims.ownedLocked(requestId, user.userId());
+        com.chh.autosense.graph.checkpoint.AssistantStateSerializer.requireExecutable(workflow.getSchemaVersion(), workflow.getGraphVersion());
         if (workflow.getSessionId() != sessionId) throw WorkflowClaimService.conflict("WORKFLOW_NOT_RESUMABLE");
         if (WorkflowStatus.valueOf(workflow.getStatus()).terminal()) throw WorkflowClaimService.conflict("WORKFLOW_NOT_RESUMABLE");
         if (explicitResume != workflow.getStatus().equals("WAITING_RESUME")) throw WorkflowClaimService.conflict("WORKFLOW_NOT_RESUMABLE");
@@ -92,7 +93,7 @@ public class WorkflowRecoveryService {
         String asNode = null;
         if (cursor != state.plan().currentStep()) {
             data.put(CONTROL, new ControlContext(Map.of(), "", false, "", null, "", Map.of()));
-            data.put(DEVICE, new DeviceContext(Map.of(), Map.of()));
+            data.put(DEVICE, state.<DeviceContext>value(DEVICE).orElseThrow().withStep(Map.of(), Map.of()));
             data.put(DIAGNOSIS, new DiagnosisContext(Map.of(), List.of(), Map.of(), Map.of()));
             asNode = "CompleteStep";
         }
@@ -102,6 +103,12 @@ public class WorkflowRecoveryService {
         if (cursor < definitions.steps().size()) {
             String stepId = definitions.steps().get(cursor).stepId();
             if (results.containsKey(stepId)) asNode = "PlanRouter";
+            else if (explicitResume && definitions.steps().get(cursor).type() == com.chh.autosense.domain.enums.PlanStepType.DEVICE_QUERY
+                    && status != WorkflowStatus.WAITING_INPUT) {
+                // Never resume directly at ReadDevice with an approval from another deployment identity.
+                // PlanRouter's outgoing edge re-enters local resolution and the confirmation boundary.
+                asNode = "PlanRouter";
+            }
             var approval = approvals.current(requestId, stepId);
             if (approval == null && state.control().approvalRef() != null)
                 approval = approvals.selectOneById(state.control().approvalRef().approvalId());

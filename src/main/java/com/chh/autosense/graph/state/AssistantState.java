@@ -117,11 +117,45 @@ public final class AssistantState extends AgentState {
         public WorkflowContext(WorkflowStatus status, int currentStep, Progress progress, long version,
                                String inputRequestId, String prompt, String returnNode, String failureCode) {
             this(status, currentStep, progress, version, inputRequestId, prompt, returnNode,
-                    failureCode, 1, "assistant-v1", 0);
+                    failureCode, com.chh.autosense.graph.checkpoint.AssistantStateSerializer.SCHEMA_VERSION,
+                    com.chh.autosense.graph.checkpoint.AssistantStateSerializer.GRAPH_VERSION, 0);
         }
     }
-    public record DeviceContext(Map<String, Object> resolved, Map<String, Object> snapshots) implements Serializable {
-        public DeviceContext { resolved = StateData.freeze(resolved); snapshots = StateData.freeze(snapshots); }
+    public record DeviceContext(ResolvedDevice target, Map<String, Object> snapshots,
+                                List<com.chh.autosense.ai.model.DeviceBasicInfo> planningDevices, Map<String, Object> statusMetadata,
+                                Map<String, Object> basicMetadata, boolean initialized, String initializedAt,
+                                String snapshotHash) implements Serializable {
+        public DeviceContext(Map<String, Object> resolved, Map<String, Object> snapshots) {
+            this(resolved, snapshots, List.of(), Map.of(), Map.of(), false, "", "");
+        }
+        public DeviceContext(Map<String, Object> resolved, Map<String, Object> snapshots,
+                             List<Map<String, Object>> planningDevices, Map<String, Object> statusMetadata,
+                             Map<String, Object> basicMetadata, boolean initialized, String initializedAt,
+                             String snapshotHash) {
+            this(ResolvedDevice.from(resolved), snapshots, planningDevices.stream().map(value ->
+                    new com.fasterxml.jackson.databind.ObjectMapper().convertValue(value,
+                            com.chh.autosense.ai.model.DeviceBasicInfo.class)).toList(),
+                    statusMetadata, basicMetadata, initialized, initializedAt, snapshotHash);
+        }
+        public DeviceContext {
+            snapshots = StateData.freeze(snapshots);
+            planningDevices = planningDevices == null ? List.of() : List.copyOf(planningDevices);
+            statusMetadata = StateData.freeze(statusMetadata); basicMetadata = StateData.freeze(basicMetadata);
+            initializedAt = Objects.requireNonNullElse(initializedAt, "");
+            snapshotHash = Objects.requireNonNullElse(snapshotHash, "");
+            if (initialized && (initializedAt.isBlank() || snapshotHash.isBlank()))
+                throw new IllegalArgumentException("Initialized device snapshot needs identity and observation time");
+        }
+        public DeviceContext withStep(Map<String, Object> resolved, Map<String, Object> snapshots) {
+            return new DeviceContext(ResolvedDevice.from(resolved), snapshots, planningDevices, statusMetadata, basicMetadata,
+                    initialized, initializedAt, snapshotHash);
+        }
+        public Map<String, Object> resolved() { return target == null ? Map.of() : target.asMap(); }
+        public com.chh.autosense.ai.model.DeviceBasicInfo requireDevice(long id) {
+            if (!initialized) throw new IllegalArgumentException("Device snapshot is not initialized");
+            return planningDevices.stream().filter(device -> device.id() != null && device.id() == id)
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException("Device reference is outside planning snapshot"));
+        }
     }
     public record DiagnosisContext(Map<String, Object> input, List<String> evidenceRefs,
                                    Map<String, Object> result, Map<String, Object> repairProposal) implements Serializable {

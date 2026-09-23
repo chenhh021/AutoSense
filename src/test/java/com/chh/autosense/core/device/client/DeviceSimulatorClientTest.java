@@ -117,4 +117,44 @@ class DeviceSimulatorClientTest {
         assertThatThrownBy(() -> client.findDeviceBySn(sn))
                 .isInstanceOf(DeviceServiceUnavailableException.class);
     }
+
+    @Test
+    void onlineProbeUsesPostAndOnlyRequiresMatchingSnAndBooleanOnline() {
+        for (boolean online : new boolean[]{true, false}) {
+            server.reset();
+            server.expect(requestTo("http://simulator.test/device/AIRC311219169/get"))
+                    .andExpect(method(HttpMethod.POST))
+                    .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.header("Content-Type", "application/json"))
+                    .andRespond(withSuccess("""
+                            {"sn":"AIRC311219169","success":true,"properties":{"online":%s,"temperature":23}}
+                            """.formatted(online), MediaType.APPLICATION_JSON));
+            assertThat(client.isDeviceOnline("AIRC311219169")).isEqualTo(online);
+            server.verify();
+        }
+    }
+
+    @Test
+    void onlineProbeTreats404AsOfflineAndOtherErrorsAsUnavailable() {
+        server.expect(requestTo("http://simulator.test/device/AIRC311219169/get"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound());
+        assertThat(client.isDeviceOnline("AIRC311219169")).isFalse();
+        server.reset();
+        server.expect(requestTo("http://simulator.test/device/AIRC311219169/get")).andRespond(withServerError());
+        assertThatThrownBy(() -> client.isDeviceOnline("AIRC311219169")).isInstanceOf(DeviceServiceUnavailableException.class);
+    }
+
+    @Test
+    void onlineProbeRejectsMismatchedSerialMissingFlagsAndInvalidBooleanTypes() {
+        for (String response : java.util.List.of("{}", "null", "{\"exists\":true}",
+                "{\"sn\":\"AIRC000000001\",\"success\":true,\"properties\":{\"online\":true}}",
+                "{\"sn\":\"AIRC311219169\",\"success\":false,\"properties\":{\"online\":true}}",
+                "{\"sn\":\"AIRC311219169\",\"success\":true,\"properties\":{\"online\":\"true\"}}",
+                "{\"sn\":\"AIRC311219169\",\"success\":true,\"properties\":{}}")) {
+            server.reset();
+            server.expect(requestTo("http://simulator.test/device/AIRC311219169/get"))
+                    .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+            assertThatThrownBy(() -> client.isDeviceOnline("AIRC311219169")).isInstanceOf(DeviceServiceUnavailableException.class);
+        }
+        assertThatThrownBy(() -> client.isDeviceOnline("../invalid")).isInstanceOf(DeviceLookupRequestException.class);
+    }
 }

@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { deleteUsingDelete as deleteSession, list } from '@/api/sessionController'
+import { getApiErrorMessage } from '@/utils/apiError'
 
 const router = useRouter()
 
@@ -35,7 +36,7 @@ const handleDelete = async (session: API.SessionListItemView) => {
     message.success('删除成功')
     fetchSessions()
   } catch (e) {
-    message.error('删除对话失败')
+    message.error(getApiErrorMessage(e, '删除对话失败'))
   }
 }
 

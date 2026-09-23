@@ -19,7 +19,7 @@ class DeviceRegistryServiceTest {
         assertThat(bound.getDeviceModelCode()).isEqualTo("NEW999");
         assertThat(bound.getUserId()).isEqualTo(42);
         verify(mapper).insert(bound);
-        when(client.findDeviceBySn(sn)).thenThrow(new DeviceServiceClient.DeviceServiceUnavailableException("offline"));
+        when(client.isDeviceOnline(sn)).thenThrow(new DeviceServiceClient.DeviceServiceUnavailableException("offline"));
         assertThat(service.isOnline(bound)).isFalse();
         assertThat(bound.getUserId()).isEqualTo(42);
         verify(client, never()).getDeviceState(anyLong());

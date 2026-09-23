@@ -36,6 +36,8 @@ public class DiagnosisWorkflowService {
         for (var step : state.plan().executionPlan().steps()) {
             if (!state.plan().step().dependsOn().contains(step.stepId()) || step.type() != PlanStepType.DEVICE_QUERY) continue;
             var result = state.plan().results().get(step.stepId());
+            if (result != null && result.status() == ExecutionPlan.StepStatus.COMPLETED && !PlanRouter.hasTrustedDeviceEvidence(result.data()))
+                throw new StepFailure("MOCK_EVIDENCE_NOT_ALLOWED", ExecutionPlan.Certainty.NOT_SENT);
             if (result != null && result.status() == ExecutionPlan.StepStatus.COMPLETED && result.data().get("evidence") instanceof Map<?, ?> value) {
                 var item = new LinkedHashMap<String, Object>(); value.forEach((k, v) -> item.put(k.toString(), v));
                 item.put("stepId", step.stepId()); evidence.add(StateData.freeze(item));

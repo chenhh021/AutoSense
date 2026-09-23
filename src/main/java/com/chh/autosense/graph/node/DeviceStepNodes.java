@@ -33,7 +33,10 @@ public final class DeviceStepNodes {
         String key = state.request().requestId() + ":" + state.plan().step().stepId();
         var control = old.command().equals(command) && old.idempotencyKey().equals(key) ? old :
                 new ControlContext(command, "", false, "", null, key, Map.of());
-        return Map.of(DEVICE, new DeviceContext(target, Map.of()), CONTROL, control);
+        var delta = new LinkedHashMap<String, Object>();
+        delta.put(DEVICE, state.<DeviceContext>value(DEVICE).orElseThrow().withStep(target, Map.of())); delta.put(CONTROL, control);
+        discardChangedRead(state, target, delta);
+        return delta;
     }
 
     public Map<String, Object> validate(AssistantState state) throws Exception {
@@ -88,7 +91,28 @@ public final class DeviceStepNodes {
 
     public Map<String, Object> revalidate(AssistantState state) throws Exception {
         if (!approved(state)) return Map.of();
+        if (state.plan().step().type() == PlanStepType.DEVICE_QUERY) {
+            // A changed model/profile requires a fresh full-snapshot approval, including on timeout retry.
+            var target = actions.resolveTarget(state);
+            if (target.isEmpty()) throw new SecurityException("Confirmed device target is no longer available");
+            if (!PlanValidator.digest(target).equals(PlanValidator.digest(state.<DeviceContext>value(DEVICE).orElseThrow().resolved()))) {
+                var c = state.control();
+                var delta = new LinkedHashMap<String, Object>();
+                delta.put(DEVICE, state.<DeviceContext>value(DEVICE).orElseThrow().withStep(target, Map.of()));
+                delta.put(CONTROL, new ControlContext(c.command(), c.commandExecutionId(), false, c.risk(), null, c.idempotencyKey(), Map.of()));
+                discardChangedRead(state, target, delta);
+                return delta;
+            }
+        }
         return validate(state);
+    }
+
+    private static void discardChangedRead(AssistantState state, Map<String, Object> target, Map<String, Object> delta) {
+        if (state.plan().step().type() != PlanStepType.DEVICE_QUERY
+                || target.equals(state.<DeviceContext>value(DEVICE).orElseThrow().resolved())) return;
+        var retry = state.retry(); var calls = new LinkedHashMap<>(retry.completedCalls());
+        calls.remove("call:device-information"); calls.remove("call:device-generation-time");
+        delta.put(RETRY, new RetryContext(retry.retriesUsed(), retry.activeAttemptId(), retry.latestFailure(), retry.nextRetryAt(), calls));
     }
 
     public Map<String, Object> prepareCommand(AssistantState state) throws Exception {

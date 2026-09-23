@@ -1,0 +1,99 @@
+{
+  "deviceType": "SMART_BULB",
+  "name": "智能灯泡",
+  "deviceModel": "MJDP09YL",
+  "capabilities": [
+    {
+      "code": "get_properties",
+      "type": "GET",
+      "description": "获取智能灯泡当前全部可读属性",
+      "result": {
+        "dataType": "OBJECT",
+        "properties": {
+          "power": {
+            "dataType": "BOOLEAN",
+            "description": "当前电源开关状态"
+          },
+          "brightness": {
+            "dataType": "INTEGER",
+            "description": "当前亮度",
+            "min": 0,
+            "max": 100,
+            "unit": "%"
+          },
+          "color_temperature": {
+            "dataType": "INTEGER",
+            "description": "当前色温",
+            "min": 2700,
+            "max": 6500,
+            "unit": "K"
+          },
+          "online": {
+            "dataType": "BOOLEAN",
+            "description": "当前在线状态"
+          },
+          "signal_strength": {
+            "dataType": "INTEGER",
+            "description": "当前无线连接信号强度",
+            "unit": "dBm"
+          },
+          "firmware_version": {
+            "dataType": "STRING",
+            "description": "当前固件版本"
+          }
+        }
+      }
+    },
+    {
+      "code": "set_properties",
+      "type": "SET",
+      "description": "设置智能灯泡的一个或多个可写属性，仅需提供需要修改的参数",
+      "parameters": {
+        "dataType": "OBJECT",
+        "properties": {
+          "power": {
+            "dataType": "BOOLEAN",
+            "required": false,
+            "description": "设置电源开关状态"
+          },
+          "brightness": {
+            "dataType": "INTEGER",
+            "required": false,
+            "description": "设置亮度",
+            "min": 0,
+            "max": 100,
+            "unit": "%"
+          },
+          "color_temperature": {
+            "dataType": "INTEGER",
+            "required": false,
+            "description": "设置色温",
+            "min": 2700,
+            "max": 6500,
+            "unit": "K"
+          }
+        }
+      }
+    },
+    {
+      "code": "reboot",
+      "type": "ACTION",
+      "description": "重启灯泡设备，使设备重新初始化并重新连接网络",
+      "riskLevel": "MEDIUM",
+      "parameters": []
+    },
+    {
+      "code": "firmware_upgrade",
+      "type": "ACTION",
+      "description": "将灯泡固件升级到指定或最新可用版本",
+      "riskLevel": "HIGH",
+      "parameters": [
+        {
+          "name": "version",
+          "dataType": "STRING",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

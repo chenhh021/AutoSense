@@ -62,11 +62,11 @@ public class WorkflowPersistenceService {
         var message = message(session.getId(), requestId, null, "input:original", "USER", text);
         var workflow = new WorkflowExecution(); workflow.setRequestId(requestId); workflow.setUserId(user.userId());
         workflow.setSessionId(session.getId()); workflow.setReportId(report.getId()); workflow.setOriginMessageId(message.getId());
-        workflow.setLatestInputMessageId(message.getId()); workflow.setGraphVersion("assistant-v1"); workflow.setSchemaVersion(1);
+        workflow.setLatestInputMessageId(message.getId()); workflow.setGraphVersion(com.chh.autosense.graph.checkpoint.AssistantStateSerializer.GRAPH_VERSION); workflow.setSchemaVersion(com.chh.autosense.graph.checkpoint.AssistantStateSerializer.SCHEMA_VERSION);
         workflow.setStatus("CREATED"); workflow.setCurrentStepIndex(0); workflow.setVersion(0L); workflow.setFence(0L);
         workflow.setLastEventSequence(0L); workflows.insertSelective(workflow);
         session.setActiveWorkflowRequestId(requestId); session.setStatus("DISPATCHING"); sessions.update(session);
-        audit.append(workflow, "admitted", "WORKFLOW_ADMITTED", null, null, null, "RECORDED", "ACCEPTED", message.getId(), Map.of("schemaVersion", 1));
+        audit.append(workflow, "admitted", "WORKFLOW_ADMITTED", null, null, null, "RECORDED", "ACCEPTED", message.getId(), Map.of("schemaVersion", com.chh.autosense.graph.checkpoint.AssistantStateSerializer.SCHEMA_VERSION));
         return new AcceptedWorkflow(requestId, session.getId(), user.userId(), message.getId(), report.getId(), report.getRound(), text);
     }
 
@@ -86,6 +86,7 @@ public class WorkflowPersistenceService {
         if (session == null || !session.getUserId().equals(user.userId())) throw new ApiException(ErrorCode.FORBIDDEN, "无权访问此会话");
         if (session.getActiveWorkflowRequestId() == null) throw WorkflowClaimService.conflict("VERSION_CONFLICT");
         var workflow = claims.ownedLocked(session.getActiveWorkflowRequestId(), user.userId());
+        com.chh.autosense.graph.checkpoint.AssistantStateSerializer.requireExecutable(workflow.getSchemaVersion(), workflow.getGraphVersion());
         boolean restart = workflow.getStatus().equals("WAITING_RESUME");
         if (inputRequestId == null && !restart) inputRequestId = workflow.getInputRequestId();
         if (inputRequestId == null || inputRequestId.isBlank() || !inputRequestId.equals(workflow.getInputRequestId()))
@@ -148,7 +149,9 @@ public class WorkflowPersistenceService {
         }
         var delta = new LinkedHashMap<>(change);
         if (change.get(OUTPUT) instanceof OutputContext output && !output.type().isBlank()) {
-            String key = "output:" + output.data().get("eventId");
+            boolean initialized = change.get(DEVICE) instanceof DeviceContext context && context.initialized()
+                    && !before.<DeviceContext>value(DEVICE).orElseThrow().initialized();
+            String key = initialized ? "device-context:initialized" : "output:" + output.data().get("eventId");
             String stepId = (String) output.data().get("stepId");
             String body = visibleBody(output);
             String messageKey = switch (output.type()) {
@@ -156,15 +159,25 @@ public class WorkflowPersistenceService {
                 case "CONCLUSION" -> "workflow:conclusion";
                 case "ERROR" -> "workflow:error";
                 case "CONFIRM" -> "approval:" + state.control().approvalRef().approvalId();
-                case "CLARIFY" -> "input:" + state.workflow().inputRequestId();
+                case "CLARIFY" -> "prompt:" + state.workflow().inputRequestId();
                 default -> key;
             };
             ChatMessage saved = body.isBlank() ? null : message(workflow.getSessionId(), workflow.getRequestId(), stepId, messageKey, "ASSISTANT", body);
             var metadata = new LinkedHashMap<String, Object>();
-            metadata.put("schemaVersion", 1); metadata.put("status", workflow.getStatus()); metadata.put("outputType", output.type());
-            metadata.put("outputKey", saved == null ? key : saved.getOutputKey()); metadata.put("simulated", properties.mode().equals("stub"));
+            metadata.put("schemaVersion", com.chh.autosense.graph.checkpoint.AssistantStateSerializer.SCHEMA_VERSION);
+            metadata.put("status", workflow.getStatus()); metadata.put("outputType", output.type());
+            metadata.put("outputKey", saved == null ? key : saved.getOutputKey());
+            Map<?, ?> payload = output.data().get("payload") instanceof Map<?, ?> value ? value : Map.of();
+            String runtimeSource = Objects.toString(payload.get("source"), "");
+            boolean mock = Set.of("MOCK", "SIMULATOR").contains(runtimeSource);
+            metadata.put("simulated", properties.mode().equals("stub") || mock);
+            if (Set.of("MOCK", "SIMULATOR", "REAL").contains(runtimeSource)) metadata.put("runtimeSource", runtimeSource);
+            if (initialized) {
+                metadata.put("deviceCount", payload.getOrDefault("deviceCount", null));
+                metadata.put("degradedCount", payload.getOrDefault("degradedCount", null));
+            }
             if (output.data().get("stepType") != null) metadata.put("stepType", output.data().get("stepType"));
-            var event = audit.append(workflow, key, "WORKFLOW_OUTPUT", stepId, null, null,
+            var event = audit.append(workflow, key, initialized ? "DEVICE_CONTEXT_INITIALIZED" : "WORKFLOW_OUTPUT", stepId, null, null,
                     state.workflow().status() == WorkflowStatus.FAILED ? "FAILED" : "RECORDED", output.code(), saved == null ? null : saved.getId(), metadata);
             var data = new LinkedHashMap<>(output.data()); data.put("eventId", workflow.getRequestId() + ":" + event.getEventSequence());
             data.put("sequence", event.getEventSequence()); data.put("version", workflow.getVersion());
@@ -256,7 +269,13 @@ public class WorkflowPersistenceService {
         catch (JsonProcessingException e) { throw new IllegalStateException("Invalid published plan", e); }
     }
     private boolean sameJson(String first, String second) {
-        try { return json.readTree(first).equals(json.readTree(second)); }
+        try {
+            var committed = json.readTree(first);
+            if (committed.equals(json.readTree(second))) return true;
+            // MySQL JSON double formatting can differ from Java by one ULP. Compare the
+            // exact database representation, without introducing a numeric tolerance.
+            return committed.equals(json.readTree(steps.normalizeJson(second)));
+        }
         catch (JsonProcessingException | IllegalArgumentException e) { return false; }
     }
     public static String legacyStatus(WorkflowStatus status) {

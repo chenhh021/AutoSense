@@ -35,6 +35,16 @@ public enum ErrorCode {
     WORKFLOW_NOT_RESUMABLE(40020, "Workflow cannot be resumed"),
     APPROVAL_SCOPE_MISMATCH(40021, "Approval scope mismatch"),
     WORKFLOW_CLAIM_LOST(40022, "Workflow execution claim lost"),
+    DEVICE_OFFLINE(40023, "Device is offline"),
+    DEVICE_CAPABILITY_NOT_CONFIGURED(40024, "Device capability is not configured"),
+    DEVICE_CAPABILITY_INVALID(40025, "Device capability definition is invalid"),
+    DEVICE_CAPABILITY_UNAVAILABLE(40026, "Device capability service is unavailable"),
+    DEVICE_ONLINE_INFO_INVALID(40027, "Device runtime attributes are invalid"),
+    DEVICE_CONTEXT_TOO_LARGE(40028, "Device context exceeds the configured limit"),
+    INCOMPATIBLE_WORKFLOW_VERSION(40029, "Workflow version is incompatible"),
+    MOCK_EVIDENCE_NOT_ALLOWED(40030, "Mock data cannot be used as real evidence"),
+    INVALID_ARGUMENT(40031, "Invalid argument"),
+    APPROVAL_REQUIRED(40032, "Device query approval is required"),
     INTERNAL_ERROR(50000, "Internal error");
 
     /**
@@ -68,16 +78,18 @@ public enum ErrorCode {
     public HttpStatus httpStatus() {
         return switch (this) {
             case OK -> HttpStatus.OK;
-            case BAD_REQUEST -> HttpStatus.BAD_REQUEST;
+            case BAD_REQUEST, INVALID_ARGUMENT, DEVICE_CONTEXT_TOO_LARGE -> HttpStatus.BAD_REQUEST;
             case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
             case FORBIDDEN, DEVICE_FORBIDDEN -> HttpStatus.FORBIDDEN;
             case USER_NOT_FOUND, SESSION_NOT_FOUND, DEVICE_NOT_FOUND -> HttpStatus.NOT_FOUND;
             case ACCOUNT_EXISTS, DEVICE_ALREADY_BOUND, DEVICE_BUSY, SESSION_BUSY, CONTEXT_EXPIRED,
-                    WORKFLOW_BUSY, VERSION_CONFLICT, WORKFLOW_NOT_RESUMABLE, APPROVAL_SCOPE_MISMATCH, WORKFLOW_CLAIM_LOST ->
+                    WORKFLOW_BUSY, VERSION_CONFLICT, WORKFLOW_NOT_RESUMABLE, APPROVAL_SCOPE_MISMATCH, WORKFLOW_CLAIM_LOST,
+                    INCOMPATIBLE_WORKFLOW_VERSION, APPROVAL_REQUIRED ->
                     HttpStatus.CONFLICT;
-            case UNSUPPORTED_DEVICE_TYPE, DEVICE_UNREACHABLE -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case UNSUPPORTED_DEVICE_TYPE, DEVICE_UNREACHABLE, DEVICE_OFFLINE, DEVICE_CAPABILITY_NOT_CONFIGURED,
+                    DEVICE_CAPABILITY_INVALID, DEVICE_ONLINE_INFO_INVALID, MOCK_EVIDENCE_NOT_ALLOWED -> HttpStatus.UNPROCESSABLE_ENTITY;
             case REQUEST_TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
-            case AI_SERVICE_UNAVAILABLE, CAPABILITY_NOT_AVAILABLE, DEVICE_SERVICE_UNAVAILABLE ->
+            case AI_SERVICE_UNAVAILABLE, CAPABILITY_NOT_AVAILABLE, DEVICE_SERVICE_UNAVAILABLE, DEVICE_CAPABILITY_UNAVAILABLE ->
                     HttpStatus.SERVICE_UNAVAILABLE;
             case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
         };

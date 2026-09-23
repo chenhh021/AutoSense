@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -156,6 +157,39 @@ public class DeviceSimulatorClient implements DeviceServiceClient {
             throw unavailable(e);
         } catch (RuntimeException e) {
             logCall("findBySn", "UNAVAILABLE", startedNanos);
+            throw unavailable(e);
+        }
+    }
+
+    @Override
+    public boolean isDeviceOnline(String sn) {
+        if (sn == null || !sn.matches("^[A-Z0-9]{4}[0-9]{9}$"))
+            throw new DeviceLookupRequestException("SN 格式不合法");
+        long startedNanos = System.nanoTime();
+        try {
+            var response = client.post().uri("/device/{sn}/get", sn)
+                    .contentType(MediaType.APPLICATION_JSON).accept(MediaType.APPLICATION_JSON)
+                    .body(new byte[0]).retrieve().body(JsonNode.class);
+            if (response == null || !response.isObject() || !response.path("sn").isTextual()
+                    || !sn.equals(response.path("sn").textValue())
+                    || !response.path("success").isBoolean() || !response.path("success").booleanValue()
+                    || !response.path("properties").isObject() || !response.path("properties").path("online").isBoolean())
+                throw new DeviceServiceUnavailableException("设备服务返回无效在线状态");
+            boolean online = response.path("properties").path("online").booleanValue();
+            // This pre-approval probe must not publish or cache the other returned attributes.
+            logCall("probeOnline", online ? "ONLINE" : "OFFLINE", startedNanos);
+            return online;
+        } catch (HttpClientErrorException.NotFound e) {
+            logCall("probeOnline", "OFFLINE", startedNanos);
+            return false;
+        } catch (HttpClientErrorException.BadRequest e) {
+            logCall("probeOnline", "BAD_REQUEST", startedNanos);
+            throw new DeviceLookupRequestException("SN 格式不合法");
+        } catch (DeviceServiceUnavailableException e) {
+            logCall("probeOnline", "INVALID_RESPONSE", startedNanos);
+            throw e;
+        } catch (RuntimeException e) {
+            logCall("probeOnline", "UNAVAILABLE", startedNanos);
             throw unavailable(e);
         }
     }

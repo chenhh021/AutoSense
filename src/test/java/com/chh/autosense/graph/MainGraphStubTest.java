@@ -30,11 +30,11 @@ class MainGraphStubTest {
         }
     }
 
-    @Test void falseConditionSkipsControlWithoutCreatingACommand() throws Exception {
+    @Test void untrustedStubEvidenceCannotDecideToSkipAControl() throws Exception {
         var actions = new StubWorkflowActions(null, Map.of(), 60, true);
         var run = new Run(actions, "查询亮度，低于30就调到80"); run.approve("APPROVED");
-        assertThat(run.state().workflow().status()).isEqualTo(WorkflowStatus.COMPLETED);
-        assertThat(run.state().plan().results().get("s2").status()).isEqualTo(ExecutionPlan.StepStatus.SKIPPED);
+        assertThat(run.state().workflow().status()).isEqualTo(WorkflowStatus.FAILED);
+        assertThat(run.state().workflow().failureCode()).isEqualTo("MOCK_EVIDENCE_NOT_ALLOWED");
         assertThat(actions.calls()).doesNotContain("control", "prepareCommand");
     }
 
@@ -87,7 +87,7 @@ class MainGraphStubTest {
     @Test void missingEvidenceFailsInsteadOfSilentlySkipping() throws Exception {
         var condition = new ExecutionPlan.Condition("EQ", new ExecutionPlan.Operand(new ExecutionPlan.Reference("s1", "power"), null),
                 new ExecutionPlan.Operand(null, true), List.of());
-        var control = new ExecutionPlan.Step("s2", PlanStepType.DEVICE_CONTROL, "control", "lamp", Map.of(), List.of("s1"),
+        var control = new ExecutionPlan.Step("s2", PlanStepType.DEVICE_CONTROL, "control", "lamp", Map.of("deviceRef", 1L), List.of("s1"),
                 Map.of(), condition, null, null);
         var actions = new StubWorkflowActions(new PlanProposal("PLAN", List.of(StubWorkflowActions.step("s1", PlanStepType.DEVICE_QUERY), control), null), Map.of(), 20, true);
         var run = new Run(actions, "fixture"); run.approve("APPROVED");
@@ -155,7 +155,8 @@ class MainGraphStubTest {
         }
     }
     @Test void queryAndControlRequireSeparateApprovalsAndExecuteInOrder() throws Exception {
-        var actions = new StubWorkflowActions();
+        var actions = new StubWorkflowActions(new PlanProposal("PLAN", List.of(
+                StubWorkflowActions.step("s1", PlanStepType.DEVICE_QUERY), StubWorkflowActions.step("s2", PlanStepType.DEVICE_CONTROL)), null), Map.of(), 20, true);
         var properties = new GraphProperties("stub", 8, 30, null, 2, 0, 300, 30, 300, 256);
         var factory = new MainGraphFactory(properties, actions, Clock.systemUTC());
         var graph = factory.compile(new MemorySaver());

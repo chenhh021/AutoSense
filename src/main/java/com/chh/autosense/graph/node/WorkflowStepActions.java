@@ -9,8 +9,12 @@ import java.util.Map;
 /** Business calls and commit boundaries. Only graph edges decide what runs next. */
 public interface WorkflowStepActions {
     default boolean streamsAnswers() { return false; }
-    record PlanProposal(String outcome, List<ExecutionPlan.Step> steps, String clarifyQuestion) {
+    record PlanProposal(String outcome, List<ExecutionPlan.Step> steps, String clarifyQuestion,
+                        AssistantState.DeviceContext deviceContext) {
         public PlanProposal { steps = steps == null ? List.of() : List.copyOf(steps); }
+        public PlanProposal(String outcome, List<ExecutionPlan.Step> steps, String clarifyQuestion) {
+            this(outcome, steps, clarifyQuestion, null);
+        }
     }
 
     PlanProposal plan(AssistantState state, Duration remaining) throws Exception;

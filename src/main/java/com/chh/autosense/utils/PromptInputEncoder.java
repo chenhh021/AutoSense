@@ -65,6 +65,12 @@ public class PromptInputEncoder {
         return diagnostics == null ? "{}" : encode(diagnostics);
     }
 
+    public String deviceContext(com.chh.autosense.graph.state.AssistantState.DeviceContext context) {
+        if (!context.initialized()) return encode(Map.of("initialized", false));
+        return encode(Map.of("devices", context.planningDevices(), "statusMetadata", context.statusMetadata(),
+                "basicMetadata", context.basicMetadata(), "observedAt", context.initializedAt()));
+    }
+
     private String encode(Object value) {
         rejectRaw(value);
         try {

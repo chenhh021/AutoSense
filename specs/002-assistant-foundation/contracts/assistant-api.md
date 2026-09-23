@@ -81,3 +81,8 @@ SSE 接受后沿用 HTTP 200 + error，code 可为 PLAN_INVALID、AI_SERVICE_UNA
 stub 事件和结果明确 code=STUB_*、payload.simulated=true；真实模式未接入能力应返回 CAPABILITY_NOT_AVAILABLE，不能用 stub 冒充真实设备结果。
 旧 ChatPage 只识别五类事件，兼容桥保持基本文本可用；步骤卡片、Query 批准、requestId/version 传递及 resume/cancel 按本契约增量适配。API 骨架可先用 curl 完成验收，不把当前前端视为已支持这些交互。
 用户点击一次步骤批准不批准其后控制/复检步骤。重新连接只能补查，必须由用户显式动作调用 resume。
+
+
+### 2026-09-23 删除会话规则
+
+DELETE /api/v1/sessions/{sessionId} 继续返回 204，校验当前用户归属。DISPATCHING 或其他未终止状态本身不构成拒绝理由；没有有效数据库执行租约且不存在 IN_FLIGHT/UNKNOWN 设备命令时，允许删除及清理关联历史、检查点和批准记录。活跃执行、旧版 processing 标记或未确定命令返回 409 WORKFLOW_BUSY，并提供具体中文原因；前端显示响应 message。GET 列表根据最新工作流状态生成兼容状态字段，无工作流时保留旧会话状态，不触发恢复或执行。

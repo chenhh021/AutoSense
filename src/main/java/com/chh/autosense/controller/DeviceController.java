@@ -33,11 +33,16 @@ public class DeviceController {
 
     private final DeviceRegistryService registryService;
     private final DeviceAdapterRegistryService adapterRegistry;
+    private final com.chh.autosense.service.DeviceListService deviceListService;
+    private final com.chh.autosense.config.DeviceQueryProperties queryProperties;
 
     public DeviceController(DeviceRegistryService registryService,
-                            DeviceAdapterRegistryService adapterRegistry) {
+                            DeviceAdapterRegistryService adapterRegistry,
+                            com.chh.autosense.service.DeviceListService deviceListService,
+                            com.chh.autosense.config.DeviceQueryProperties queryProperties) {
         this.registryService = registryService;
         this.adapterRegistry = adapterRegistry;
+        this.deviceListService = deviceListService; this.queryProperties = queryProperties;
     }
 
     /**
@@ -64,9 +69,8 @@ public class DeviceController {
      */
     @GetMapping
     public Map<String, List<DeviceView>> listMine(@AuthenticationPrincipal AuthUser user) {
-        List<DeviceView> devices = registryService.listMine(user.userId()).stream()
-                .map(d -> toView(d, registryService.isOnline(d)))
-                .toList();
+        List<DeviceView> devices = deviceListService.listMine(user,
+                java.time.Instant.now().plus(queryProperties.initializationTimeout())).devices();
         long onlineCount = devices.stream().filter(DeviceView::online).count();
         log.info("Device operation completed: operation=list, result=OK, count={}, onlineCount={}",
                 devices.size(), onlineCount);

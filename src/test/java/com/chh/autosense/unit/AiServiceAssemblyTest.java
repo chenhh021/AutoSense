@@ -52,6 +52,8 @@ class AiServiceAssemblyTest {
                 .modelName("configured-model").timeout(Duration.ofSeconds(2))
                 .logRequests(false).logResponses(false).build();
         routerFactory = new IntentPlannerServiceFactory(chatModel);
+        ReflectionTestUtils.setField(routerFactory, "deviceListTool", new com.chh.autosense.ai.tools.DeviceListTool(null,
+                new com.chh.autosense.config.DeviceQueryProperties("mock", Duration.ofSeconds(10), 4, 50, 262144, Duration.ofHours(1), Map.of())));
         routerFactory.validate();
         analysisFactory = new EnhancedAnswerFactory(chatModel, new dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<>(), new com.chh.autosense.support.DeterministicEmbeddingModel(), KnowledgeConfigurationTest.properties(Map.of()), com.chh.autosense.support.KnowledgeFixtures.catalog(), encoder);
         analysisFactory.validate();
@@ -92,7 +94,8 @@ class AiServiceAssemblyTest {
     }
 
     @Test void adapterLogsRealProviderStatusAndOutputParsingWithoutLeakingBodies() throws Exception {
-        var adapter = new com.chh.autosense.graph.node.RealWorkflowActions(routerFactory, new com.chh.autosense.core.session.memory.GraphChatMemoryAdapter(), encoder, null, null, null, null);
+        var adapter = new com.chh.autosense.graph.node.RealWorkflowActions(routerFactory, new com.chh.autosense.core.session.memory.GraphChatMemoryAdapter(), encoder, null, null, null, null,
+                new com.chh.autosense.config.DeviceQueryProperties("mock", Duration.ofSeconds(10), 4, 50, 262144, Duration.ofHours(1), Map.of()), null, null);
         var history = new ConversationHistorySnapshot(1, 2, List.of());
         try (var logs = new LogCaptureSupport()) {
             for (int status : new int[]{401, 429, 503}) {
@@ -129,7 +132,7 @@ class AiServiceAssemblyTest {
         String historyJson = encoder.history(history);
         String textJson = encoder.text(current);
         reply("{\"outcome\":\"PLAN\",\"steps\":[{\"stepId\":\"s1\",\"type\":\"KNOWLEDGE_CONSULT\",\"instruction\":\"answer\",\"requiresKnowledgeBase\":false}]}");
-        assertThat(routerFactory.intentPlannerService().plan(historyJson, textJson).proposal().steps().getFirst().type())
+        assertThat(routerFactory.intentPlannerService().plan(historyJson, textJson, "{}", textJson).proposal().steps().getFirst().type())
                 .isEqualTo(PlanStepType.KNOWLEDGE_CONSULT);
         assertRequest("intent-planner.txt", current, prior);
         reply("{\"deviceType\":\"smart_bulb\",\"symptom\":\"dark\",\"reproduction\":null,\"sufficient\":true,\"clarifyQuestion\":null}");
@@ -143,6 +146,28 @@ class AiServiceAssemblyTest {
         var data = assertRequest("diagnosis-reasoner.txt", current, prior);
         assertThat(data.get("symptom").isNull()).isTrue();
         assertThat(json.convertValue(data.get("diagnostics"), Map.class)).isEqualTo(diagnostic);
+    }
+
+    @Test void deviceQueryAnswerBindsQuestionHistoryAndValidatedValuesAsData() throws Exception {
+        server.stubFor(post(urlPathEqualTo("/v1/chat/completions")).willReturn(aResponse()
+                .withHeader("Content-Type", "text/event-stream").withBody(
+                        "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"设定温度为 23.0 度。\"}}]}\n\n"
+                        + "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+                        + "data: [DONE]\n\n")));
+        var history = new ConversationHistorySnapshot(1, 3, List.of(
+                new ConversationHistorySnapshot.Entry(2, "USER", "询问主卧空调设定温度")));
+        var values = Map.of("deviceName", "主卧空调 {{text}}", "values", Map.of(
+                "getResults.get_properties.target_temperature", Map.of("value", 23.0, "unit", "°C"),
+                "getResults.get_properties.current_temperature", Map.of("value", 27.0, "unit", "°C")));
+        var completed = new CompletableFuture<String>();
+        answerFactory.directAnswerService().answerDeviceQuery(encoder.history(history), encoder.text("它现在是多少？"),
+                        encoder.text("读取设定温度"), encoder.diagnostics(values))
+                .onPartialResponse(t -> { }).onCompleteResponse(r -> completed.complete(r.aiMessage().text()))
+                .onError(completed::completeExceptionally).start();
+        assertThat(completed.get(5, TimeUnit.SECONDS)).isEqualTo("设定温度为 23.0 度。");
+        var data = assertRequest("device-query-answer.txt", "它现在是多少？", "询问主卧空调设定温度");
+        assertThat(data.path("instruction").asText()).isEqualTo("读取设定温度");
+        assertThat(data.path("queryResult")).isEqualTo(json.valueToTree(values));
     }
 
     @Test void realTokenStreamCompletesAndErrorsWithoutFallback() throws Exception {
@@ -175,6 +200,10 @@ class AiServiceAssemblyTest {
                     .isInstanceOf(IllegalStateException.class).hasMessageNotContaining("secret");
             assertThatThrownBy(() -> AiServiceValidator.validateServices(List.of(InlineResource.class)))
                     .isInstanceOf(IllegalStateException.class).hasMessageNotContaining("secret");
+            for (var invalid : List.of(EmptyResource.class, WhitespaceResource.class, WrongVariables.class)) {
+                assertThatThrownBy(() -> AiServiceValidator.validateServices(List.of(invalid)))
+                        .isInstanceOf(IllegalStateException.class);
+            }
             assertThat(logs.rendered()).doesNotContain("secret-inline");
             server.verify(0, postRequestedFor(urlPathEqualTo("/v1/chat/completions")));
         }
@@ -184,6 +213,21 @@ class AiServiceAssemblyTest {
         @SystemMessage(fromResource = "/prompt/missing.txt")
         @UserMessage(fromResource = "/prompt/conversation-input.txt")
         String call(@V("history") String history, @V("text") String text);
+    }
+    public interface EmptyResource {
+        @SystemMessage(fromResource = "/prompt/test-empty.txt")
+        @UserMessage(fromResource = "/prompt/conversation-input.txt")
+        String call(@V("history") String history, @V("text") String text);
+    }
+    public interface WhitespaceResource {
+        @SystemMessage(fromResource = "/prompt/intent-planner.txt")
+        @UserMessage(fromResource = "/prompt/test-whitespace.txt")
+        String call(@V("history") String history, @V("text") String text);
+    }
+    public interface WrongVariables {
+        @SystemMessage(fromResource = "/prompt/intent-planner.txt")
+        @UserMessage(fromResource = "/prompt/conversation-input.txt")
+        String call(@V("unexpected") String value);
     }
     public interface InlineResource {
         @SystemMessage(value = "secret-inline", fromResource = "/prompt/intent-planner.txt")
@@ -202,8 +246,11 @@ class AiServiceAssemblyTest {
     }
 
     private com.chh.autosense.graph.state.AssistantState plannerState() {
-        return new com.chh.autosense.graph.state.AssistantState(com.chh.autosense.graph.state.AssistantState.initial(
+        var state = new com.chh.autosense.graph.state.AssistantState(com.chh.autosense.graph.state.AssistantState.initial(
                 new com.chh.autosense.graph.state.AssistantState.RequestContext("request", 1, 1, "secret-question")));
+        return com.chh.autosense.graph.node.GraphUpdates.apply(state, Map.of("deviceContext",
+                new com.chh.autosense.graph.state.AssistantState.DeviceContext(Map.of(), Map.of(), List.of(), Map.of(), Map.of(), true,
+                        "2026-09-21T00:00:00Z", "empty")));
     }
 
     private void reply(String output) throws Exception {

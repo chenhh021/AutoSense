@@ -55,6 +55,7 @@ public class WorkflowApprovalService {
     public Decision decide(AuthUser user, long sessionId, String requestId, String stepId, String approvalId,
                            boolean approved, long expectedVersion) {
         var workflow = claims.ownedLocked(requestId, user.userId());
+        com.chh.autosense.graph.checkpoint.AssistantStateSerializer.requireExecutable(workflow.getSchemaVersion(), workflow.getGraphVersion());
         if (workflow.getSessionId() != sessionId) throw WorkflowClaimService.conflict("APPROVAL_SCOPE_MISMATCH");
         var row = approvals.lock(approvalId);
         if (row == null || !row.getRequestId().equals(requestId) || !row.getStepId().equals(stepId)

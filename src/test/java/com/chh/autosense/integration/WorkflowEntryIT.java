@@ -12,6 +12,9 @@ import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
 class WorkflowEntryIT extends AbstractWorkflowIT {
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean(name = "workflowBusinessActions")
+    com.chh.autosense.graph.node.WorkflowStepActions businessActions;
+
     @Autowired WorkflowExecutionService executions;
     @Autowired ConversationQueryService conversations;
     @Autowired WorkflowRecoveryService recovery;
@@ -40,6 +43,12 @@ class WorkflowEntryIT extends AbstractWorkflowIT {
     }
 
     @Test void approvalContinuationAndCancellationPreserveCompletedQuery() throws Exception {
+        // Test independent approvals, without using simulated evidence to decide a control.
+        var steps = List.of(
+                com.chh.autosense.graph.node.StubWorkflowActions.step("s1", com.chh.autosense.domain.enums.PlanStepType.DEVICE_QUERY),
+                com.chh.autosense.graph.node.StubWorkflowActions.step("s2", com.chh.autosense.domain.enums.PlanStepType.DEVICE_CONTROL));
+        org.mockito.Mockito.doReturn(new com.chh.autosense.graph.node.WorkflowStepActions.PlanProposal("PLAN", steps, null, com.chh.autosense.graph.node.StubWorkflowActions.fixtureDevices()))
+                .when(businessActions).plan(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         var events = consume(executions.create(user, null, "查询亮度，如果低于30调到80"));
         var last = events.getLast(); long session = last.data().conversationId(); String id = last.data().requestId();
         var view = conversations.workflow(user, session, id);

@@ -13,7 +13,7 @@ public final class PlanValidator {
     private static final Set<String> PUBLIC_FIELDS = Set.of("deviceRef", "deviceType", "model", "brightness",
             "power", "colorTemperature", "temperature", "online", "state", "evidence", "diagnosis", "proposal", "answer");
     private static final Map<PlanStepType, Set<String>> PARAMETERS = Map.of(
-            PlanStepType.KNOWLEDGE_CONSULT, Set.of("deviceType", "model", "question"),
+            PlanStepType.KNOWLEDGE_CONSULT, Set.of("deviceType", "model", "question", "answerMode"),
             PlanStepType.DEVICE_QUERY, Set.of("deviceRef", "deviceType", "model", "fields", "action"),
             PlanStepType.FAULT_DIAGNOSIS, Set.of("deviceRef", "deviceType", "model", "symptoms", "evidence"),
             PlanStepType.DEVICE_CONTROL, Set.of("deviceRef", "deviceType", "model", "action", "brightness", "power", "colorTemperature"));
@@ -52,8 +52,11 @@ public final class PlanValidator {
             require(PARAMETERS.get(step.type()).containsAll(step.parameters().keySet())
                     && PARAMETERS.get(step.type()).containsAll(step.inputBindings().keySet()), "Unsafe parameter");
             step.parameters().forEach(this::parameter);
+            if (step.parameters().containsKey("answerMode")) require(
+                    "DEVICE_CONTEXT".equals(step.parameters().get("answerMode"))
+                    && Boolean.FALSE.equals(step.requiresKnowledgeBase()), "Invalid device context answer mode");
             if (step.parameters().get("action") instanceof String action) require(
-                    step.type() == PlanStepType.DEVICE_QUERY ? Set.of("list", "state", "diagnostic_snapshot").contains(action)
+                    step.type() == PlanStepType.DEVICE_QUERY ? Set.of("state", "diagnostic_snapshot").contains(action)
                             : step.type() == PlanStepType.DEVICE_CONTROL && Set.of("setBrightness", "setPower", "setColorTemperature").contains(action),
                     "Action does not match step type");
             step.inputBindings().values().forEach(ref -> reference(ref, prior, step.dependsOn()));
@@ -63,11 +66,40 @@ public final class PlanValidator {
         return new ExecutionPlan(proposal.steps(), digest(proposal.steps()));
     }
 
+    /** Ground model references in the exact facts supplied to the planner. No database access here. */
+    public void validateTargets(ExecutionPlan plan, com.chh.autosense.graph.state.AssistantState.DeviceContext devices) {
+        var prior = new HashMap<String, ExecutionPlan.Step>();
+        for (var step : plan.steps()) {
+            if ("DEVICE_CONTEXT".equals(step.parameters().get("answerMode")))
+                require(devices.initialized(), "Device context answer requires a planning snapshot");
+            boolean direct = step.parameters().containsKey("deviceRef");
+            var binding = step.inputBindings().get("deviceRef");
+            boolean deviceStep = step.type() == PlanStepType.DEVICE_QUERY || step.type() == PlanStepType.DEVICE_CONTROL;
+            require(!direct || binding == null, "Conflicting device target sources");
+            if (deviceStep) require(direct || binding != null, "Missing planned device reference");
+            if (direct) {
+                var device = devices.requireDevice(((Number) step.parameters().get("deviceRef")).longValue());
+                require(!step.parameters().containsKey("deviceType") || device.deviceType().equals(step.parameters().get("deviceType")),
+                        "Device type conflicts with planning snapshot");
+                require(!step.parameters().containsKey("model") || device.deviceModel().equals(step.parameters().get("model")),
+                        "Device model conflicts with planning snapshot");
+            }
+            if (binding != null) {
+                var source = prior.get(binding.stepId());
+                require(source != null && step.dependsOn().contains(binding.stepId()) && "deviceRef".equals(binding.field())
+                        && (source.type() == PlanStepType.DEVICE_QUERY || source.type() == PlanStepType.DEVICE_CONTROL),
+                        "Invalid device target binding");
+            }
+            prior.put(step.stepId(), step);
+        }
+    }
+
     private void parameter(String name, Object value) {
         require(value != null, "Missing parameter value");
         switch (name) {
             case "fields" -> require(value instanceof List<?> fields && !fields.isEmpty()
-                    && fields.stream().allMatch(PUBLIC_FIELDS::contains), "Invalid query fields");
+                    && fields.size() <= 100 && fields.stream().allMatch(field -> field instanceof String text
+                    && (text.matches("[A-Za-z][A-Za-z0-9_]{0,63}") || dynamicPath(text))), "Invalid query fields");
             case "action" -> require(value instanceof String && Set.of("list", "state", "diagnostic_snapshot",
                     "setBrightness", "setPower", "setColorTemperature").contains(value), "Unknown action");
             case "brightness" -> require(value instanceof Number number && number.doubleValue() >= 0
@@ -104,7 +136,11 @@ public final class PlanValidator {
 
     private void reference(ExecutionPlan.Reference ref, Set<String> prior, List<String> dependencies) {
         require(ref != null && prior.contains(ref.stepId()) && dependencies.contains(ref.stepId())
-                && PUBLIC_FIELDS.contains(ref.field()), "Invalid result reference");
+                && (PUBLIC_FIELDS.contains(ref.field()) || dynamicPath(ref.field())), "Invalid result reference");
+    }
+
+    public static boolean dynamicPath(String field) {
+        return field != null && field.length() <= 512 && field.matches("getResults\\.[A-Za-z][A-Za-z0-9_]{0,63}(?:\\.[A-Za-z][A-Za-z0-9_]{0,63}){1,8}");
     }
 
     public static String digest(Object value) {

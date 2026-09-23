@@ -89,13 +89,12 @@ public class DeviceRegistryService {
     }
 
     /**
-     * 实时探测设备是否在线：以模拟器按 SN 查询的 exists 为准(true 在线/false 离线)。
+     * POST /device/{sn}/get 探测在线状态，只消费 properties.online；404 按离线处理。
      * 探测异常(模拟器不可达、响应无效等)一律按离线处理，不影响列表整体返回。
      */
     public boolean isOnline(Device device) {
         try {
-            DeviceLookupResult lookup = deviceServiceClient.findDeviceBySn(device.getSn());
-            return lookup != null && Boolean.TRUE.equals(lookup.exists());
+            return deviceServiceClient.isDeviceOnline(device.getSn());
         } catch (RuntimeException e) {
             return false;
         }

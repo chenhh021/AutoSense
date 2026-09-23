@@ -1,0 +1,172 @@
+{
+  "deviceType": "AIR_CONDITIONER",
+  "name": "空调",
+  "deviceModel": "KFR035GW",
+  "capabilities": [
+    {
+      "code": "get_properties",
+      "type": "GET",
+      "description": "获取空调当前全部可读属性",
+      "result": {
+        "dataType": "OBJECT",
+        "properties": {
+          "power": {
+            "dataType": "BOOLEAN",
+            "description": "当前电源开关状态"
+          },
+          "mode": {
+            "dataType": "STRING",
+            "description": "当前运行模式",
+            "enumValues": ["AUTO", "COOL", "HEAT", "DRY", "FAN"]
+          },
+          "current_temperature": {
+            "dataType": "NUMBER",
+            "description": "当前室内环境温度",
+            "unit": "°C"
+          },
+          "target_temperature": {
+            "dataType": "NUMBER",
+            "description": "当前设定的目标温度",
+            "min": 16,
+            "max": 30,
+            "unit": "°C"
+          },
+          "fan_speed": {
+            "dataType": "STRING",
+            "description": "当前风速档位",
+            "enumValues": ["AUTO", "LOW", "MEDIUM", "HIGH"]
+          },
+          "swing": {
+            "dataType": "STRING",
+            "description": "当前扫风模式",
+            "enumValues": ["OFF", "VERTICAL", "HORIZONTAL", "AUTO"]
+          },
+          "eco_mode": {
+            "dataType": "BOOLEAN",
+            "description": "节能模式是否开启"
+          },
+          "sleep_mode": {
+            "dataType": "BOOLEAN",
+            "description": "睡眠模式是否开启"
+          },
+          "compressor_status": {
+            "dataType": "STRING",
+            "description": "当前压缩机运行状态",
+            "enumValues": ["STOPPED", "RUNNING"]
+          },
+          "error_code": {
+            "dataType": "STRING",
+            "description": "设备当前故障码，无故障时为空"
+          },
+          "filter_life": {
+            "dataType": "INTEGER",
+            "description": "滤网剩余寿命百分比",
+            "min": 0,
+            "max": 100,
+            "unit": "%"
+          },
+          "online": {
+            "dataType": "BOOLEAN",
+            "description": "设备当前在线状态"
+          },
+          "firmware_version": {
+            "dataType": "STRING",
+            "description": "设备当前固件版本"
+          }
+        }
+      }
+    },
+    {
+      "code": "set_properties",
+      "type": "SET",
+      "description": "设置空调的一个或多个可写属性，仅需提供需要修改的参数",
+      "parameters": {
+        "dataType": "OBJECT",
+        "properties": {
+          "power": {
+            "dataType": "BOOLEAN",
+            "required": false,
+            "description": "设置电源开关状态"
+          },
+          "mode": {
+            "dataType": "STRING",
+            "required": false,
+            "description": "设置运行模式",
+            "enumValues": ["AUTO", "COOL", "HEAT", "DRY", "FAN"]
+          },
+          "target_temperature": {
+            "dataType": "NUMBER",
+            "required": false,
+            "description": "设置目标温度",
+            "min": 16,
+            "max": 30,
+            "unit": "°C"
+          },
+          "fan_speed": {
+            "dataType": "STRING",
+            "required": false,
+            "description": "设置风速档位",
+            "enumValues": ["AUTO", "LOW", "MEDIUM", "HIGH"]
+          },
+          "swing": {
+            "dataType": "STRING",
+            "required": false,
+            "description": "设置扫风模式",
+            "enumValues": ["OFF", "VERTICAL", "HORIZONTAL", "AUTO"]
+          },
+          "eco_mode": {
+            "dataType": "BOOLEAN",
+            "required": false,
+            "description": "设置节能模式"
+          },
+          "sleep_mode": {
+            "dataType": "BOOLEAN",
+            "required": false,
+            "description": "设置睡眠模式"
+          }
+        }
+      }
+    },
+    {
+      "code": "reboot",
+      "type": "ACTION",
+      "description": "重启空调设备，使设备控制系统重新初始化并重新连接网络",
+      "riskLevel": "MEDIUM",
+      "parameters": []
+    },
+    {
+      "code": "self_diagnosis",
+      "type": "ACTION",
+      "description": "执行设备自检并返回可检测到的故障信息",
+      "riskLevel": "LOW",
+      "parameters": []
+    },
+    {
+      "code": "clear_error",
+      "type": "ACTION",
+      "description": "清除设备当前可清除的故障状态或故障码",
+      "riskLevel": "MEDIUM",
+      "parameters": []
+    },
+    {
+      "code": "reset_filter_life",
+      "type": "ACTION",
+      "description": "更换或清洁滤网后重置滤网寿命计数",
+      "riskLevel": "MEDIUM",
+      "parameters": []
+    },
+    {
+      "code": "firmware_upgrade",
+      "type": "ACTION",
+      "description": "将空调固件升级到指定或最新可用版本",
+      "riskLevel": "HIGH",
+      "parameters": [
+        {
+          "name": "version",
+          "dataType": "STRING",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

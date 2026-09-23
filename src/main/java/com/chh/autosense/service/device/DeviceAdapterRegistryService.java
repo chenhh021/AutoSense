@@ -3,6 +3,7 @@ package com.chh.autosense.service.device;
 import com.chh.autosense.config.DeviceTypeRegistryProperties;
 import com.chh.autosense.core.device.spi.DeviceAdapter;
 import com.chh.autosense.domain.entity.Device;
+import com.chh.autosense.domain.enums.DeviceType;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -29,11 +30,14 @@ public class DeviceAdapterRegistryService {
     }
 
     public boolean isSupported(String deviceType) {
-        return registryProperties.isSupported(deviceType) && adapters.containsKey(deviceType);
+        return registryProperties.isSupported(deviceType) && adapterOf(deviceType).isPresent();
     }
 
     public Optional<DeviceAdapter> adapterOf(String deviceType) {
-        return Optional.ofNullable(adapters.get(deviceType));
+        if (deviceType == null) return Optional.empty();
+        var exact = adapters.get(deviceType);
+        var known = DeviceType.fromCode(deviceType);
+        return Optional.ofNullable(exact != null || known == null ? exact : adapters.get(known.code()));
     }
 
     public DeviceTypeRegistryProperties.DeviceTypeSpec specOf(String deviceType) {

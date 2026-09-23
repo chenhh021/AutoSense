@@ -15,6 +15,7 @@ import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 import static org.bsc.langgraph4j.action.AsyncEdgeAction.edge_async;
 
 /** One compilation owns all inline subgraphs, state, interrupts and checkpoints. */
+@lombok.extern.slf4j.Slf4j
 public final class MainGraphFactory {
     private final GraphProperties properties;
     private final WorkflowStepActions actions;
@@ -79,15 +80,25 @@ public final class MainGraphFactory {
 
     private Map<String, Object> validate(AssistantState state) {
         var p = state.plan();
+        String stage = "STRUCTURE";
         try {
             var published = new PlanValidator(properties).validate(new WorkflowStepActions.PlanProposal(
                     p.candidateOutcome(), p.executionPlan().steps(), p.clarifyQuestion()));
+            stage = "DEVICE_TARGETS";
+            new PlanValidator(properties).validateTargets(published, state.<DeviceContext>value(DEVICE).orElseThrow());
+            log.info("Workflow plan validated: requestId={}, outcome={}, stepCount={}, planHash={}",
+                    state.request().requestId(), p.candidateOutcome(), published.steps().size(), published.hash());
             Object deadline = state.retry().completedCalls().get("sliceDeadline");
             return Map.of(PLAN, new PlanContext(published, 0, Map.of(), Map.of(), p.candidateOutcome(), p.clarifyQuestion()),
                     RETRY, new RetryContext(0, "", "", null, deadline == null ? Map.of() : Map.of("sliceDeadline", deadline)));
         } catch (PlanValidator.ClarificationRequired e) {
+            log.info("Workflow plan clarification required: requestId={}, stage={}, reason=Missing step type or knowledge flag",
+                    state.request().requestId(), stage);
             return Map.of(PLAN, new PlanContext(ExecutionPlan.empty(), 0, Map.of(), Map.of(), "CLARIFY", "请补充设备类型及咨询需求。"));
         } catch (IllegalArgumentException e) {
+            // These messages come only from the local, pure validators and contain no model values.
+            log.warn("Workflow plan rejected: requestId={}, stage={}, reason={}", state.request().requestId(), stage,
+                    com.chh.autosense.utils.LogSanitizer.label(e.getMessage()));
             return GraphUpdates.event(state, WorkflowStatus.REJECTED, "STATUS", "INVALID_PLAN", "无法安全执行此计划。", Map.of());
         }
     }
